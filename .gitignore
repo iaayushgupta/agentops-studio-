@@ -1,0 +1,195 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Yuno Agent Platform — .gitignore
+# Stack: Python 3.11 / FastAPI · Next.js 14 / TypeScript · PostgreSQL · Docker
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── Secrets & environment ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example          # keep the template; ignore everything else
+
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]              # .pyc  .pyo  .pyd
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+.eggs/
+wheels/
+*.whl
+*.tar.gz
+pip-wheel-metadata/
+share/python-wheels/
+
+# Installer / pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+.venv*/
+virtualenv/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# Linting / formatting
+.ruff_cache/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+test-results/
+*.cover
+*.log
+
+# Profiling
+*.prof
+
+# IPython / Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# PyInstaller
+*.manifest
+*.spec
+
+
+# ── Node.js / Next.js / TypeScript ───────────────────────────────────────────
+node_modules/
+.next/
+.turbo/
+out/
+.vercel/
+.output/
+
+# Build output
+frontend/dist/
+frontend/build/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Next.js auto-generated type declarations (regenerated on every build)
+next-env.d.ts
+
+# Root-level stray lock file (actual lock file lives in frontend/)
+/package-lock.json
+/yarn.lock
+/pnpm-lock.yaml
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+
+# ── Database ──────────────────────────────────────────────────────────────────
+# Local Postgres data volume (if mounted on host)
+postgres-data/
+pgdata/
+*.dump
+*.sql.gz
+
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+# Override files for local tweaks (keep docker-compose.yml)
+docker-compose.override.yml
+docker-compose.local.yml
+
+
+# ── Alembic ───────────────────────────────────────────────────────────────────
+# Keep all migration files; only ignore generated cache
+alembic/__pycache__/
+alembic/versions/__pycache__/
+
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains (PyCharm, WebStorm, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+Session.vim
+.netrwhist
+
+# Emacs
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+# Local AI assistant session state — not part of the codebase
+.claude/
+
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.fseventsd
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+
+# ── Linux ─────────────────────────────────────────────────────────────────────
+*~
+.nfs*
+
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.log
+*.bak
+*.tmp
+*.temp
+*.orig
+*.rej
+.cache/
+tmp/
+temp/
+scratch/
