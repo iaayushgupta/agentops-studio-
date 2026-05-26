@@ -10,7 +10,6 @@ from app.db.models import Agent
 
 router = APIRouter()
 
-
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class AgentCreate(BaseModel):
@@ -25,6 +24,7 @@ class AgentCreate(BaseModel):
     memory_enabled: bool = False
     max_iterations: int = Field(default=10, ge=1, le=100)
     max_cost_usd: float = Field(default=1.0, ge=0.0)
+    channel_bindings: dict | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -39,6 +39,7 @@ class AgentUpdate(BaseModel):
     memory_enabled: bool | None = None
     max_iterations: int | None = Field(default=None, ge=1, le=100)
     max_cost_usd: float | None = Field(default=None, ge=0.0)
+    channel_bindings: dict | None = None
 
 
 class AgentResponse(BaseModel):
@@ -54,6 +55,7 @@ class AgentResponse(BaseModel):
     memory_enabled: bool
     max_iterations: int
     max_cost_usd: float
+    channel_bindings: dict | None = None
     created_at: Any
     updated_at: Any
 
@@ -108,6 +110,7 @@ async def get_agent(
     return await _get_agent_or_404(agent_id, db)
 
 
+@router.put("/{agent_id}", response_model=AgentResponse)
 @router.patch("/{agent_id}", response_model=AgentResponse)
 async def update_agent(
     agent_id: uuid.UUID,

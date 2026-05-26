@@ -110,7 +110,7 @@ export default function DashboardPage() {
     <>
       <Header
         title="Dashboard"
-        subtitle="Yuno Agent Platform overview"
+        subtitle="AgentOps Studio overview"
         actions={
           <button
             onClick={load}

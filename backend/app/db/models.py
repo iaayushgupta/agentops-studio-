@@ -4,7 +4,7 @@ from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Float,
     DateTime, ForeignKey, JSON, Enum as SAEnum,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
 import enum
@@ -61,6 +61,7 @@ class Agent(Base):
     memory_enabled = Column(Boolean, nullable=False, default=False)
     max_iterations = Column(Integer, nullable=False, default=10)
     max_cost_usd = Column(Float, nullable=False, default=1.0)
+    channel_bindings = Column(JSON, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -160,6 +161,32 @@ class TokenUsage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     run = relationship("Run", back_populates="token_usages")
+
+
+# ── Routing rules table ────────────────────────────────────────────────────────
+
+class RoutingRule(Base):
+    """
+    Keyword-based routing table for Telegram messages.
+    Rules are evaluated in descending priority order; first keyword match wins.
+    """
+    __tablename__ = "routing_rules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    keywords = Column(ARRAY(Text), nullable=False, default=list)
+    workflow_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workflows.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    priority = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Eager-loadable join to Workflow (forward ref — no backref needed on Workflow)
+    workflow = relationship("Workflow", foreign_keys=[workflow_id])
 
 
 # ── Mock data tables ───────────────────────────────────────────────────────────

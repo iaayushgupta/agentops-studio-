@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/Header";
 import { createAgent } from "@/lib/api";
-import type { AgentCreate } from "@/lib/api";
+import type { AgentCreate, ChannelBindings } from "@/lib/api";
 
 const AVAILABLE_TOOLS = [
   "get_transaction",
@@ -59,6 +59,35 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement> & { childre
   );
 }
 
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onChange}
+      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+        checked ? "bg-violet-600" : "bg-slate-200"
+      } ${disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
+    >
+      <span
+        className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg transition-transform ${
+          checked ? "translate-x-4" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewAgentPage() {
@@ -80,6 +109,22 @@ export default function NewAgentPage() {
     max_cost_usd: 1.0,
   });
 
+  const [channelBindings, setChannelBindings] = useState<
+    Required<Pick<ChannelBindings, "telegram">>
+  >({
+    telegram: { enabled: false, chat_id: "" },
+  });
+
+  function setTelegram<K extends "enabled" | "chat_id">(
+    key: K,
+    value: K extends "enabled" ? boolean : string
+  ) {
+    setChannelBindings((prev) => ({
+      ...prev,
+      telegram: { ...prev.telegram, [key]: value },
+    }));
+  }
+
   function set<K extends keyof AgentCreate>(key: K, value: AgentCreate[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -100,7 +145,7 @@ export default function NewAgentPage() {
     setSaving(true);
     setError(null);
     try {
-      await createAgent(form);
+      await createAgent({ ...form, channel_bindings: channelBindings });
       router.push("/agents");
     } catch (err) {
       setError((err as Error).message);
@@ -283,6 +328,64 @@ export default function NewAgentPage() {
               <label htmlFor="memory" className="text-sm text-slate-700">
                 Enable memory (conversation history across runs)
               </label>
+            </div>
+          </section>
+
+          {/* Channel Bindings */}
+          <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+            <div>
+              <h2 className="font-medium text-slate-900">Channel Bindings</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Connect this agent to external messaging channels
+              </p>
+            </div>
+
+            <div className="space-y-4">
+
+              {/* Telegram */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <ToggleSwitch
+                    checked={channelBindings.telegram.enabled}
+                    onChange={() =>
+                      setTelegram("enabled", !channelBindings.telegram.enabled)
+                    }
+                  />
+                  <span className="text-sm font-medium text-slate-700">Telegram</span>
+                </div>
+                {channelBindings.telegram.enabled && (
+                  <div className="ml-12 space-y-1.5">
+                    <Label>Chat ID</Label>
+                    <Input
+                      value={channelBindings.telegram.chat_id}
+                      onChange={(e) => setTelegram("chat_id", e.target.value)}
+                      placeholder="e.g. 123456789"
+                    />
+                    <Hint>
+                      Get your chat ID by messaging @userinfobot on Telegram
+                    </Hint>
+                  </div>
+                )}
+              </div>
+
+              {/* Slack — coming soon */}
+              <div className="flex items-center gap-3">
+                <ToggleSwitch checked={false} onChange={() => {}} disabled />
+                <span className="text-sm font-medium text-slate-400">Slack</span>
+                <span className="px-1.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 rounded">
+                  Coming Soon
+                </span>
+              </div>
+
+              {/* WhatsApp — coming soon */}
+              <div className="flex items-center gap-3">
+                <ToggleSwitch checked={false} onChange={() => {}} disabled />
+                <span className="text-sm font-medium text-slate-400">WhatsApp</span>
+                <span className="px-1.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 rounded">
+                  Coming Soon
+                </span>
+              </div>
+
             </div>
           </section>
 

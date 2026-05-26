@@ -19,6 +19,7 @@ seed:
 	docker compose exec backend python -m app.seeds.seed_mock_data
 	docker compose exec backend python -m app.seeds.seed_agents
 	docker compose exec backend python -m app.seeds.seed_workflows
+	docker compose exec backend python -m app.seeds.seed_routing_rules
 
 test:
 	docker compose exec backend pytest tests/ -v

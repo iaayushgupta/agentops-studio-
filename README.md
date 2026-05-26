@@ -4,13 +4,18 @@ Visual multi-agent orchestration platform — configure agents, build async work
 
 ---
 
-## Who is this for?
+## Who Is This For
 
-Technical teams use AgentOps Studio to deploy agent workflows
-without writing orchestration code. Non-technical operators use
-it to configure, run, and monitor those workflows independently —
-changing agent behavior, adding conditions, and reading results
-without touching the codebase.
+**Operations teams** use AgentOps Studio to automate repetitive
+workflows — payment triage, fraud alerts, support escalation —
+without writing code.
+
+**Non-technical operators** configure agents, build workflows
+visually, and manage routing rules entirely from the browser.
+No developer involvement after initial setup.
+
+**Technical teams** use the platform to deploy agent infrastructure
+that their ops teams can own and iterate on independently.
 
 ---
 
@@ -112,6 +117,36 @@ The tradeoff is that tasks are not durable across restarts. A production path wo
 
 ---
 
+## 5a. Smart Routing
+
+Incoming Telegram messages are automatically routed to the correct workflow based on configurable keyword rules — no code changes required.
+
+### How it works
+
+When a message arrives on Telegram, the platform checks it against routing rules stored in the database, in priority order. The first rule whose keywords match the message determines which workflow runs.
+
+Default rules:
+
+| Keywords | Workflow |
+|---|---|
+| payment, transaction, TXN, failed, charged | Payment Failure Triage |
+| urgent, down, support, help, account, login | Support Escalation |
+| fraud, suspicious, verify, unauthorized, alert | Fraud Detection Alert |
+
+### Configuring routing rules
+
+Rules are managed entirely from the Settings page — no developer needed:
+
+1. Open Settings → Smart Routing Rules
+2. Add a new rule: enter keywords + select workflow
+3. Drag to reorder priority (first match wins)
+4. Toggle rules on/off without deleting them
+5. Save — active immediately, no restart required
+
+This means a non-technical ops manager can onboard a new workflow and have it live on Telegram in under 60 seconds.
+
+---
+
 ## 6. Features Implemented
 
 - [x] Agent CRUD — name, system prompt, model provider/name, temperature, tools allowlist, cost and iteration ceilings
@@ -126,12 +161,23 @@ The tradeoff is that tasks are not durable across restarts. A production path wo
 - [x] Cost tracking — per-run token usage and USD cost computed from static price table, surfaced in UI
 - [x] Final response composition — Python template function (no LLM) assembles customer-facing message from accumulated agent outputs
 - [x] Docker Compose deployment — three services (postgres, backend, frontend), single `make up`
+- [x] Smart Routing Rules — keyword-based automatic workflow routing stored in Postgres, evaluated in priority order
+- [x] Routing Rules UI — non-technical users can configure routing from Settings without code changes
+- [x] Dynamic routing — add, edit, delete, and reorder rules from the browser; changes are live immediately
 
 ---
 
 ## 7. Demo Scenario: Payment Failure Triage
 
 A payment fails and the customer sends a Telegram message: *"My payment of $500 to ACME Store failed. Transaction TXN-0003."*
+
+The platform routes between three workflows automatically based on message content:
+
+- *"My payment of $150 failed. TXN-0003."* → **Payment Failure Triage**
+- *"URGENT: Our system is down."* → **Support Escalation**
+- *"Check TXN-0004 for fraud."* → **Fraud Detection Alert**
+
+Routing rules are fully configurable from the Settings UI.
 
 The active workflow routes the message through five agent nodes:
 
@@ -291,6 +337,33 @@ Tools that need database access should use `async with AsyncSessionLocal() as db
 
 The runtime layer is channel-agnostic; only `trigger_channel` (a string) is stored on the `Run` row.
 
+### Adding a New Routing Rule
+
+**From the UI (no code required):**
+
+1. Open Settings → Smart Routing Rules
+2. Click "+ Add Rule"
+3. Enter trigger keywords (e.g. `refund`, `chargeback`)
+4. Select the target workflow from the dropdown
+5. Drag to set priority (top = checked first)
+6. Click "Save All Rules"
+
+No code changes. No restart. Live immediately.
+
+**Programmatically via the API:**
+
+```http
+POST /routing-rules
+Content-Type: application/json
+
+{
+  "keywords": ["refund", "chargeback"],
+  "workflow_id": "uuid-here",
+  "priority": 4,
+  "is_active": true
+}
+```
+
 ---
 
 ## 14. Tests
@@ -320,7 +393,7 @@ All LLM calls are mocked via `pytest-mock` patching `app.runtime.compiler.get_ll
 | **Scheduler** | `cron_schedule` column and UI field exist but no execution engine | Replace `asyncio.create_task` with APScheduler or Celery Beat; the `_execute_run` interface is unchanged |
 | **Auth / multi-tenancy** | Single user, no authentication on any endpoint | Add Clerk (or any OIDC provider) + `tenant_id` FK on every table; FastAPI middleware enforces row-level isolation |
 | **Horizontal scaling** | One backend process; task state is in-process | Move background tasks to a Postgres-backed queue (`pgqueuer`) and run multiple backend replicas behind a load balancer |
-| **WhatsApp / Slack** | `ChannelAdapter` ABC is defined and Telegram is implemented | Implement `WhatsAppAdapter` / `SlackAdapter`; they share the same three-method interface |
+| **Multi-channel routing** | Telegram implemented, `ChannelAdapter` ABC defined for Slack/WhatsApp | Implement `receive()`, `send()`, `parse_message()` per channel |
 | **Workflow versioning** | `graph_json` is overwritten on every save | Add a `workflow_versions` table with a `version` integer; runs store `workflow_version_id` instead of `workflow_id` |
 | **Multi-provider LLM** | `get_llm()` factory supports `google`, `groq`, and `ollama`; Gemini Flash is the default | Set `DEFAULT_MODEL_PROVIDER=groq` or `ollama` in `.env` to switch; per-agent overrides already stored in `model_provider` / `model_name` columns |
 

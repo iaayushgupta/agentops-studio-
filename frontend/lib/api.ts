@@ -1,13 +1,29 @@
 /**
- * Typed API client for the Yuno Agent Platform backend.
- * Base URL is read from NEXT_PUBLIC_API_URL (defaults to http://localhost:8000).
+ * Typed API client for the AgentOps Studio backend.
+ *
+ * Base URL resolution order (evaluated per request so localStorage changes
+ * take effect after a page refresh without a rebuild):
+ *   1. localStorage "BACKEND_URL"   — set via Settings page
+ *   2. NEXT_PUBLIC_API_URL          — build-time env var
+ *   3. http://localhost:8000        — local dev fallback
  */
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE_URL =
+  typeof window !== "undefined"
+    ? localStorage.getItem("BACKEND_URL") ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "http://localhost:8000"
+    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type RunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+export interface ChannelBindings {
+  telegram?: { enabled: boolean; chat_id?: string }
+  slack?: { enabled: boolean; channel_id?: string }
+  whatsapp?: { enabled: boolean; phone_number?: string }
+}
 
 export interface Agent {
   id: string;
@@ -22,6 +38,7 @@ export interface Agent {
   memory_enabled: boolean;
   max_iterations: number;
   max_cost_usd: number;
+  channel_bindings?: ChannelBindings;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +55,7 @@ export interface AgentCreate {
   memory_enabled?: boolean;
   max_iterations?: number;
   max_cost_usd?: number;
+  channel_bindings?: ChannelBindings;
 }
 
 export type AgentUpdate = Partial<AgentCreate>;
@@ -120,10 +138,29 @@ export interface RunTimeline {
   token_usage: TokenUsage;
 }
 
+export interface RoutingRule {
+  id: string;
+  keywords: string[];
+  workflow_id: string | null;
+  workflow_name: string | null;
+  priority: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface RoutingRuleCreate {
+  keywords: string[];
+  workflow_id: string | null;
+  priority?: number;
+  is_active?: boolean;
+}
+
+export type RoutingRuleUpdate = Partial<RoutingRuleCreate>;
+
 // ── Fetch helper ───────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
   });
@@ -146,8 +183,14 @@ export const createAgent = (body: AgentCreate): Promise<Agent> =>
 export const updateAgent = (id: string, body: AgentUpdate): Promise<Agent> =>
   apiFetch(`/agents/${id}`, { method: "PUT", body: JSON.stringify(body) });
 
-export const deleteAgent = (id: string): Promise<void> =>
-  apiFetch(`/agents/${id}`, { method: "DELETE" });
+export async function deleteAgent(id: string): Promise<void> {
+  // Use a direct fetch — apiFetch always calls .json() but DELETE returns 204 No Content
+  const res = await fetch(`${BASE_URL}/agents/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`API ${res.status}: ${text}`);
+  }
+}
 
 // ── Workflow endpoints ─────────────────────────────────────────────────────────
 
@@ -194,3 +237,23 @@ export const triggerRun = (
 
 export const cancelRun = (id: string): Promise<Run> =>
   apiFetch(`/runs/${id}/cancel`, { method: "POST" });
+
+// ── Routing rule endpoints ─────────────────────────────────────────────────────
+
+export const getRoutingRules = (): Promise<RoutingRule[]> =>
+  apiFetch("/routing-rules");
+
+export const createRoutingRule = (body: RoutingRuleCreate): Promise<RoutingRule> =>
+  apiFetch("/routing-rules", { method: "POST", body: JSON.stringify(body) });
+
+export const updateRoutingRule = (id: string, body: RoutingRuleUpdate): Promise<RoutingRule> =>
+  apiFetch(`/routing-rules/${id}`, { method: "PUT", body: JSON.stringify(body) });
+
+export async function deleteRoutingRule(id: string): Promise<void> {
+  // DELETE returns 204 No Content — bypass apiFetch which always calls .json()
+  const res = await fetch(`${BASE_URL}/routing-rules/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`API ${res.status}: ${text}`);
+  }
+}

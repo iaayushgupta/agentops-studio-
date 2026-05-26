@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Header } from "@/components/layout/Header";
 import { getAgent, updateAgent } from "@/lib/api";
-import type { Agent, AgentUpdate } from "@/lib/api";
+import type { Agent, AgentUpdate, ChannelBindings } from "@/lib/api";
 
 const AVAILABLE_TOOLS = [
   "get_transaction",
@@ -15,11 +15,19 @@ const AVAILABLE_TOOLS = [
   "calculator",
 ];
 
+function Label({ children }: { children: React.ReactNode }) {
+  return <label className="block text-sm font-medium text-slate-700 mb-1">{children}</label>;
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return <p className="mt-1 text-xs text-slate-400">{children}</p>;
+}
+
 function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent ${props.className ?? ""}`}
+      className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent ${props.className ?? ""}`}
     />
   );
 }
@@ -28,8 +36,37 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
-      className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none ${props.className ?? ""}`}
+      className={`w-full px-3 py-2 border border-slate-200 rounded-lg text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none ${props.className ?? ""}`}
     />
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onChange}
+      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+        checked ? "bg-violet-600" : "bg-slate-200"
+      } ${disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
+    >
+      <span
+        className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg transition-transform ${
+          checked ? "translate-x-4" : "translate-x-0"
+        }`}
+      />
+    </button>
   );
 }
 
@@ -40,6 +77,11 @@ export default function EditAgentPage() {
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [form, setForm] = useState<AgentUpdate>({});
+  const [channelBindings, setChannelBindings] = useState<
+    Required<Pick<ChannelBindings, "telegram">>
+  >({
+    telegram: { enabled: false, chat_id: "" },
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,10 +103,30 @@ export default function EditAgentPage() {
           max_iterations: a.max_iterations,
           max_cost_usd: a.max_cost_usd,
         });
+        // Populate channel bindings from saved agent data
+        const cb = a.channel_bindings;
+        if (cb?.telegram) {
+          setChannelBindings({
+            telegram: {
+              enabled: cb.telegram.enabled ?? false,
+              chat_id: cb.telegram.chat_id ?? "",
+            },
+          });
+        }
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  function setTelegram<K extends "enabled" | "chat_id">(
+    key: K,
+    value: K extends "enabled" ? boolean : string
+  ) {
+    setChannelBindings((prev) => ({
+      ...prev,
+      telegram: { ...prev.telegram, [key]: value },
+    }));
+  }
 
   function set<K extends keyof AgentUpdate>(key: K, value: AgentUpdate[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -83,7 +145,7 @@ export default function EditAgentPage() {
     setSaving(true);
     setError(null);
     try {
-      await updateAgent(id, form);
+      await updateAgent(id, { ...form, channel_bindings: channelBindings });
       router.push("/agents");
     } catch (err) {
       setError((err as Error).message);
@@ -141,6 +203,64 @@ export default function EditAgentPage() {
                   {tool}
                 </button>
               ))}
+            </div>
+          </section>
+
+          {/* Channel Bindings */}
+          <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+            <div>
+              <h2 className="font-medium text-slate-900">Channel Bindings</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Connect this agent to external messaging channels
+              </p>
+            </div>
+
+            <div className="space-y-4">
+
+              {/* Telegram */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <ToggleSwitch
+                    checked={channelBindings.telegram.enabled}
+                    onChange={() =>
+                      setTelegram("enabled", !channelBindings.telegram.enabled)
+                    }
+                  />
+                  <span className="text-sm font-medium text-slate-700">Telegram</span>
+                </div>
+                {channelBindings.telegram.enabled && (
+                  <div className="ml-12 space-y-1.5">
+                    <Label>Chat ID</Label>
+                    <Input
+                      value={channelBindings.telegram.chat_id}
+                      onChange={(e) => setTelegram("chat_id", e.target.value)}
+                      placeholder="e.g. 123456789"
+                    />
+                    <Hint>
+                      Get your chat ID by messaging @userinfobot on Telegram
+                    </Hint>
+                  </div>
+                )}
+              </div>
+
+              {/* Slack — coming soon */}
+              <div className="flex items-center gap-3">
+                <ToggleSwitch checked={false} onChange={() => {}} disabled />
+                <span className="text-sm font-medium text-slate-400">Slack</span>
+                <span className="px-1.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 rounded">
+                  Coming Soon
+                </span>
+              </div>
+
+              {/* WhatsApp — coming soon */}
+              <div className="flex items-center gap-3">
+                <ToggleSwitch checked={false} onChange={() => {}} disabled />
+                <span className="text-sm font-medium text-slate-400">WhatsApp</span>
+                <span className="px-1.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 rounded">
+                  Coming Soon
+                </span>
+              </div>
+
             </div>
           </section>
 

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db.session import engine
-from app.api import agents, workflows, runs, websocket
+from app.api import agents, workflows, runs, websocket, routing_rules
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +48,12 @@ async def _seed_data() -> None:
     from app.seeds.seed_mock_data import run as seed_mock
     from app.seeds.seed_agents import run as seed_agents
     from app.seeds.seed_workflows import run as seed_workflows
+    from app.seeds.seed_routing_rules import run as seed_routing_rules
 
-    await seed_mock()       # mock_transactions, mock_psp_status, mock_routing_logs
-    await seed_agents()     # agents (referenced by workflows)
-    await seed_workflows()  # workflows (reference agents by name)
+    await seed_mock()            # mock_transactions, mock_psp_status, mock_routing_logs
+    await seed_agents()          # agents (referenced by workflows)
+    await seed_workflows()       # workflows (reference agents by name)
+    await seed_routing_rules()   # keyword routing rules (reference workflows by name)
     logger.info("Seed data loaded")
 
 
@@ -105,6 +107,7 @@ app.include_router(agents.router, prefix="/agents", tags=["agents"])
 app.include_router(workflows.router, prefix="/workflows", tags=["workflows"])
 app.include_router(runs.router, prefix="/runs", tags=["runs"])
 app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+app.include_router(routing_rules.router, prefix="/routing-rules", tags=["routing-rules"])
 
 
 @app.get("/health")

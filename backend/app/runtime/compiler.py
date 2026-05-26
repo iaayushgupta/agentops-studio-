@@ -175,6 +175,10 @@ def compose_final_response(state: "WorkflowState") -> str:
       recommended_psp — current_output["recommended_psp"]
       failure_type    — current_output["failure_type"] (set by investigator)
       amount / merchant — current_output or trigger_payload
+
+    Non-payment workflows (support escalation, fraud detection) are detected
+    by the absence of a known payment failure_type combined with the presence
+    of support-specific fields (priority, customer_message, escalation_message).
     """
     out = state.get("current_output", {})
 
@@ -183,15 +187,43 @@ def compose_final_response(state: "WorkflowState") -> str:
         or out.get("failure_type")
         or "unknown"
     )
-    transaction_id = out.get("transaction_id") or "your transaction"
-    failed_psp     = out.get("psp") or out.get("failed_psp") or "the payment provider"
-    recommended_psp = out.get("recommended_psp") or "an alternate provider"
-    amount         = out.get("amount", "")
-    merchant       = out.get("merchant_name") or "the merchant"
-
-    amount_str = f"${amount} " if amount else ""
 
     ft = str(failure_type).upper()
+
+    # ── Support escalation / tier-support paths ────────────────────────────────
+    # These fields are produced by support / escalation agents, not payment agents.
+    # Check them first when failure_type is absent or unknown so that support
+    # escalation workflows return a meaningful message instead of the payment fallback.
+    _payment_types = frozenset({
+        "PSP_TIMEOUT", "ROUTING_FAILURE", "GATEWAY_ERROR",
+        "CARD_DECLINE", "INSUFFICIENT_FUNDS",
+    })
+    customer_msg = out.get("customer_message") or out.get("escalation_message")
+    priority = out.get("priority")
+
+    if ft not in _payment_types:
+        if priority == "high":
+            ticket = out.get("ticket_id", "")
+            ticket_str = f" Your ticket ID is {ticket}." if ticket else ""
+            return (
+                f"Dear customer, your high-priority issue has been escalated to our "
+                f"senior support team.{ticket_str} We will contact you within 2 hours."
+            )
+        elif priority == "low":
+            return (
+                "Dear customer, our support team has reviewed your request and will "
+                "provide a resolution within 24 hours."
+            )
+        if customer_msg:
+            return str(customer_msg)
+
+    # ── Payment-specific paths ─────────────────────────────────────────────────
+    transaction_id  = out.get("transaction_id") or "your transaction"
+    failed_psp      = out.get("psp") or out.get("failed_psp") or "the payment provider"
+    recommended_psp = out.get("recommended_psp") or "an alternate provider"
+    amount          = out.get("amount", "")
+    merchant        = out.get("merchant_name") or "the merchant"
+    amount_str = f"${amount} " if amount else ""
 
     if ft in ("PSP_TIMEOUT", "ROUTING_FAILURE", "GATEWAY_ERROR"):
         return (
@@ -213,6 +245,9 @@ def compose_final_response(state: "WorkflowState") -> str:
             f"Please add funds to your account and retry."
         )
     else:
+        # Final fallback — also surfaces any customer_msg the agents produced
+        if customer_msg:
+            return str(customer_msg)
         return (
             f"Dear customer, your payment to {merchant} "
             f"(Transaction {transaction_id}) could not be processed. "
@@ -250,12 +285,14 @@ class WorkflowCompiler:
         nodes, adjacency = self._normalize_graph(graph_json)
 
         # ── Determine entry point ─────────────────────────────────────────────
-        # New format: top-level "entry_node" field gives the first real agent node
-        # Old format: find the "start" node and take its first outgoing edge target
+        # Priority 1: explicit "entry_node" field (new backend-native format)
+        # Priority 2: outgoing edge of any "start" or "trigger" node
+        #   • "start"   — seeded graphs (old ReactFlow format)
+        #   • "trigger" — graphs saved from the Canvas builder (ReactFlow native)
         entry_node_id: str | None = graph_json.get("entry_node") or None
         if not entry_node_id:
             for nid, nd in nodes.items():
-                if nd["type"] == "start":
+                if nd["type"] in ("start", "trigger"):
                     out = adjacency.get(nid, [])
                     if out:
                         entry_node_id = out[0][1]
@@ -281,8 +318,8 @@ class WorkflowCompiler:
         for node_id, node in nodes.items():
             ntype = node["type"]
 
-            if ntype in ("start", "condition"):
-                continue  # start handled above; condition handled via incoming node
+            if ntype in ("start", "trigger", "condition"):
+                continue  # start/trigger = entry marker; condition wired via incoming agent
 
             if ntype == "end":
                 graph.add_edge(node_id, END)

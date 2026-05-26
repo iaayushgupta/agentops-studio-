@@ -14,7 +14,18 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 
-const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000";
+/**
+ * WebSocket base URL resolution order:
+ *   1. localStorage "WS_URL"        — set via Settings page
+ *   2. NEXT_PUBLIC_WS_URL           — build-time env var
+ *   3. ws://localhost:8000          — local dev fallback
+ */
+const WS_BASE =
+  typeof window !== "undefined"
+    ? localStorage.getItem("WS_URL") ||
+      process.env.NEXT_PUBLIC_WS_URL ||
+      "ws://localhost:8000"
+    : process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
 
 export interface StreamEvent {
   event_type: string;

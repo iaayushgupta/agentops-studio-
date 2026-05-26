@@ -37,6 +37,65 @@ import { useRunStream } from "@/lib/websocket";
 import { normalizeNodes, normalizeEdges } from "@/lib/normalizeWorkflow";
 import type { Workflow } from "@/lib/api";
 
+// ── Graph format adapters ─────────────────────────────────────────────────────
+
+/**
+ * Convert either backend-native format (node_id/node_type/config_json,
+ * source_node_id/target_node_id) OR old ReactFlow format (id/type/data,
+ * source/target) into a plain ReactFlow-compatible {nodes, edges} object.
+ *
+ * This runs BEFORE normalizeNodes/normalizeEdges so both functions always
+ * receive nodes/edges that have the 'id', 'type', 'data', 'source', 'target'
+ * fields they expect.
+ */
+function transformToReactFlow(
+  graphJson: Record<string, unknown>
+): { nodes: Node[]; edges: Edge[] } {
+  const rawNodes = (graphJson.nodes as Record<string, unknown>[] | undefined) ?? [];
+  const rawEdges = (graphJson.edges as Record<string, unknown>[] | undefined) ?? [];
+
+  const nodes: Node[] = rawNodes.map((n) => {
+    const id   = (n.node_id ?? n.id) as string;
+    const type = (n.node_type ?? n.type) as string;
+    const cfg  = (n.config_json ?? n.data ?? {}) as Record<string, unknown>;
+    return {
+      id,
+      type,
+      position: (n.position as { x: number; y: number }) ?? { x: 0, y: 0 },
+      data: { ...cfg, label: (cfg.label as string | undefined) ?? id },
+    };
+  });
+
+  const edges: Edge[] = rawEdges.map((e, i) => {
+    const condJson = e.condition_json as Record<string, unknown> | undefined;
+    const legacyData = e.data as Record<string, unknown> | undefined;
+    return {
+      id:     (e.id ?? `edge-${i}`) as string,
+      source: (e.source_node_id ?? e.source) as string,
+      target: (e.target_node_id ?? e.target) as string,
+      label:  (e.label ?? "") as string,
+      data:   { condition: condJson?.value ?? legacyData?.condition },
+    };
+  });
+
+  return { nodes, edges };
+}
+
+/**
+ * Compute entry_node from a ReactFlow graph (the first agent-type node that
+ * has no incoming edges, following the outgoing edge of any trigger/start node).
+ */
+function computeEntryNode(nodes: Node[], edges: Edge[]): string | undefined {
+  const trigger = nodes.find((n) => n.type === "trigger" || n.type === "start");
+  if (trigger) {
+    const out = edges.find((e) => e.source === trigger.id);
+    if (out) return out.target;
+  }
+  // Fallback: first agent node with no incoming edge
+  const targets = new Set(edges.map((e) => e.target));
+  return nodes.find((n) => n.type === "agent" && !targets.has(n.id))?.id;
+}
+
 // ── Node types registration ───────────────────────────────────────────────────
 
 const NODE_TYPES = {
@@ -250,7 +309,11 @@ function CanvasInner({ workflow, initialNodes, initialEdges }: CanvasInnerProps)
     setSaveMsg(null);
     try {
       const obj = rfInstance.toObject();
-      const graphJson = { nodes: obj.nodes, edges: obj.edges };
+      const graphJson = {
+        entry_node: computeEntryNode(obj.nodes, obj.edges),
+        nodes: obj.nodes,
+        edges: obj.edges,
+      };
 
       if (workflowId) {
         await updateWorkflow(workflowId, { name: workflowName, graph_json: graphJson });
@@ -304,10 +367,11 @@ function CanvasInner({ workflow, initialNodes, initialEdges }: CanvasInnerProps)
             : w.name.toLowerCase().includes("support") || w.name.toLowerCase().includes("escalation")
         );
         if (match && match.graph_json?.nodes) {
-          const gj = match.graph_json as { nodes: Node[]; edges: Edge[] };
-          // Normalize so agent slugs/roles resolve to full names and model info
-          rfSetNodes(normalizeNodes(gj.nodes ?? [], agents));
-          rfSetEdges(normalizeEdges(gj.edges ?? []));
+          // Step 1: transform DB format (node_id/config_json) → ReactFlow format (id/data)
+          const rf = transformToReactFlow(match.graph_json as Record<string, unknown>);
+          // Step 2: normalize agent slugs/roles to full names and model info
+          rfSetNodes(normalizeNodes(rf.nodes, agents));
+          rfSetEdges(normalizeEdges(rf.edges));
           setWorkflowName(match.name);
           setWorkflowId(match.id);
           return;

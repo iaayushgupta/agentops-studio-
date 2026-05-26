@@ -40,22 +40,70 @@ class TelegramAdapter(ChannelAdapter):
             await self._app.bot.send_message(chat_id=recipient, text=text)
 
     async def on_message(self, sender: str, text: str, raw: dict) -> None:
-        """Trigger the payment-triage workflow for each inbound message."""
+        """
+        Route the inbound message to the best-matching active workflow.
+
+        Routing order:
+          1. Load active RoutingRule rows from the DB ordered by priority DESC.
+          2. For each rule, check if any keyword appears in the message (case-insensitive).
+             The first matching rule's workflow is used.
+          3. Fallback: first active workflow (any) when no rule matches.
+
+        Rules are managed via the Settings UI (GET/POST/PUT/DELETE /routing-rules).
+        """
         from app.db.session import AsyncSessionLocal
         from app.services.runtime_service import RuntimeService
         from sqlalchemy import select
-        from app.db.models import Workflow, WorkflowStatus
+        from sqlalchemy.orm import selectinload
+        from app.db.models import RoutingRule, Workflow, WorkflowStatus
 
         async with AsyncSessionLocal() as db:
+            # ── 1. Fetch active routing rules (DB-driven) ─────────────────────
             result = await db.execute(
-                select(Workflow)
-                .where(Workflow.status == WorkflowStatus.active)
-                .limit(1)
+                select(RoutingRule)
+                .options(selectinload(RoutingRule.workflow))
+                .where(RoutingRule.is_active == True)  # noqa: E712
+                .order_by(RoutingRule.priority.desc())
             )
-            workflow = result.scalar_one_or_none()
+            active_rules = result.scalars().all()
+
+            # ── 2. First-match keyword routing ────────────────────────────────
+            message_lower = text.lower()
+            workflow = None
+            for rule in active_rules:
+                wf = rule.workflow
+                if wf is None or wf.status != WorkflowStatus.active:
+                    continue
+                if any(kw.lower() in message_lower for kw in (rule.keywords or [])):
+                    workflow = wf
+                    logger.info(
+                        "Routing rule matched (priority=%s, keywords=%s) → workflow '%s'",
+                        rule.priority, rule.keywords, wf.name,
+                    )
+                    break
+
+            # ── 3. Fallback: first active workflow ────────────────────────────
             if workflow is None:
-                logger.warning("No active workflow found for Telegram message")
+                logger.info(
+                    "No routing rule matched message from %s; "
+                    "falling back to first active workflow",
+                    sender,
+                )
+                fb = await db.execute(
+                    select(Workflow)
+                    .where(Workflow.status == WorkflowStatus.active)
+                    .limit(1)
+                )
+                workflow = fb.scalar_one_or_none()
+
+            if workflow is None:
+                logger.warning("No active workflow found for Telegram message from %s", sender)
                 return
+
+            logger.info(
+                "Telegram message from %s → workflow '%s' (id=%s)",
+                sender, workflow.name, workflow.id,
+            )
             await RuntimeService(db).trigger_run(
                 workflow_id=workflow.id,
                 trigger_channel="telegram",

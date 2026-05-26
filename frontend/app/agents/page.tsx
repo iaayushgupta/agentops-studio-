@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Plus, Pencil, Trash2, Bot } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { getAgents, deleteAgent } from "@/lib/api";
-import type { Agent } from "@/lib/api";
+import type { Agent, ChannelBindings } from "@/lib/api";
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -128,6 +128,11 @@ export default function AgentsPage() {
                   {agent.tools_enabled.length > 0 && (
                     <span className="inline-flex px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
                       {agent.tools_enabled.length} tool{agent.tools_enabled.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {(agent.channel_bindings as ChannelBindings | undefined)?.telegram?.enabled && (
+                    <span className="inline-flex px-2 py-0.5 rounded text-xs border border-sky-200 bg-sky-50 text-sky-700">
+                      📱 Telegram
                     </span>
                   )}
                 </div>

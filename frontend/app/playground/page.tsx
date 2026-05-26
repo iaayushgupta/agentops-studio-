@@ -1,23 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import { Send, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Send, Loader2, CheckCircle } from "lucide-react";
 import { Header } from "@/components/layout/Header";
-import { getWorkflows, triggerRun } from "@/lib/api";
+import { getWorkflows, triggerRun, getRunTimeline } from "@/lib/api";
 import { useRunStream } from "@/lib/websocket";
 import type { Workflow } from "@/lib/api";
-import { useEffect } from "react";
 
 export default function PlaygroundPage() {
+  const router = useRouter();
+
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState<string>("");
   const [message, setMessage] = useState("TXN-001 payment failed");
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  // lastRunId persists after activeRunId clears so the output panel stays visible
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [finalResponse, setFinalResponse] = useState("");
 
   const { events, status, cost, isConnected, clearEvents } = useRunStream(activeRunId);
 
+  // Load workflows on mount
   useEffect(() => {
     getWorkflows().then((wfs) => {
       setWorkflows(wfs);
@@ -25,7 +31,7 @@ export default function PlaygroundPage() {
     });
   }, []);
 
-  // Clear old run when status reaches terminal state
+  // Disconnect WebSocket a few seconds after the run reaches a terminal state
   useEffect(() => {
     if (status === "completed" || status === "failed") {
       const timer = setTimeout(() => setActiveRunId(null), 3000);
@@ -33,15 +39,38 @@ export default function PlaygroundPage() {
     }
   }, [status]);
 
+  // Listen for run_completed; extract final_response or fall back to timeline fetch
+  useEffect(() => {
+    const completedEvt = events.find((e) => e.event_type === "run_completed");
+    if (!completedEvt) return;
+
+    const fr = completedEvt.data.final_response as string | undefined;
+    if (fr) {
+      setFinalResponse(fr);
+      return;
+    }
+
+    // Fallback: GET /runs/{id}/timeline
+    const rid = (completedEvt.run_id as string | undefined) || lastRunId;
+    if (!rid) return;
+    getRunTimeline(rid)
+      .then((tl) => {
+        if (tl.run.final_response) setFinalResponse(tl.run.final_response);
+      })
+      .catch(() => {/* silent — best-effort fallback */});
+  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedWorkflow) { setError("Select a workflow first."); return; }
     setError(null);
     clearEvents();
+    setFinalResponse(""); // reset for the new run
     setSubmitting(true);
     try {
       const run = await triggerRun(selectedWorkflow, { message });
       setActiveRunId(run.id);
+      setLastRunId(run.id);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -49,15 +78,13 @@ export default function PlaygroundPage() {
     }
   }
 
-  const finalResponse = events.find((e) => e.event_type === "run_completed")?.data?.final_response as string | undefined;
-
   return (
     <>
       <Header title="Playground" subtitle="Manually trigger workflows and watch them run" />
 
       <div className="flex-1 overflow-auto p-6 space-y-5 max-w-3xl">
 
-        {/* Trigger form */}
+        {/* ── Trigger form ───────────────────────────────────────────────── */}
         <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Workflow</label>
@@ -85,7 +112,9 @@ export default function PlaygroundPage() {
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">{error}</p>
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+              {error}
+            </p>
           )}
 
           <button
@@ -98,20 +127,26 @@ export default function PlaygroundPage() {
           </button>
         </form>
 
-        {/* Live output */}
-        {activeRunId && (
+        {/* ── Live output (stays visible after run completes via lastRunId) ── */}
+        {lastRunId && (
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+
+            {/* Run header */}
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-900">
-                  Run <span className="font-mono">{activeRunId.slice(0, 8)}…</span>
+                  Run <span className="font-mono">{lastRunId.slice(0, 8)}…</span>
                 </p>
                 <p className="text-xs text-slate-400">
                   Status: <span className="font-medium text-slate-700">{status}</span>
                   {cost > 0 && ` · $${cost.toFixed(4)}`}
                 </p>
               </div>
-              <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-300"}`} />
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  isConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-300"
+                }`}
+              />
             </div>
 
             {/* Event feed */}
@@ -131,15 +166,29 @@ export default function PlaygroundPage() {
               )}
             </div>
 
-            {/* Final response pill */}
+            {/* Final response — shown below the event stream when run completes */}
             {finalResponse && (
-              <div className="px-5 py-4 bg-emerald-50 border-t border-emerald-200">
-                <p className="text-xs font-medium text-emerald-700 mb-1">Final Response</p>
-                <p className="text-sm text-emerald-900 leading-relaxed">{finalResponse}</p>
+              <div className="p-4">
+                <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle className="text-green-600 h-4 w-4" />
+                    <span className="font-medium text-green-800">Agent Response</span>
+                  </div>
+                  <p className="text-gray-800 text-sm leading-relaxed">{finalResponse}</p>
+                  <div className="mt-3">
+                    <button
+                      onClick={() => router.push(`/runs/${lastRunId}`)}
+                      className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 text-slate-700 transition-colors"
+                    >
+                      View Full Run →
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
         )}
+
       </div>
     </>
   );
