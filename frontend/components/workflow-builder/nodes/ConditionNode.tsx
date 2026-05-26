@@ -5,7 +5,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { GitBranch } from "lucide-react";
 
 export interface ConditionNodeData {
-  label: string;
+  label?: string;
   field?: string;
   operator?: string;
   value?: string;
@@ -20,7 +20,7 @@ function ConditionNode({ data, selected }: NodeProps) {
 
   const summary = d.field
     ? `${d.field} ${opLabel[d.operator ?? "eq"] ?? d.operator} ${d.value ?? "?"}`
-    : "Not configured";
+    : "Configure condition";
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: 160, height: 100 }}>

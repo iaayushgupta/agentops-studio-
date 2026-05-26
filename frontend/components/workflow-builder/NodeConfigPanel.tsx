@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Node } from "@xyflow/react";
 import { Settings, Bot, GitBranch, Send, CheckCircle } from "lucide-react";
 import { getAgents } from "@/lib/api";
@@ -43,6 +43,8 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement> & { childre
 function AgentConfig({ data, onChange }: { data: Record<string, unknown>; onChange: (d: Record<string, unknown>) => void }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
+  // Track whether we've already auto-resolved agentId from role to avoid loops
+  const autoResolved = useRef(false);
 
   useEffect(() => {
     getAgents()
@@ -51,8 +53,32 @@ function AgentConfig({ data, onChange }: { data: Record<string, unknown>; onChan
       .finally(() => setLoadingAgents(false));
   }, []);
 
-  // selectedAgent may come from the fetched list, or we synthesize from normalized data
-  const selectedAgent = agents.find((a) => a.id === (data.agentId as string));
+  // Auto-resolve agent selection by role when agents finish loading and agentId is absent
+  useEffect(() => {
+    if (autoResolved.current || agents.length === 0 || data.agentId) return;
+    const role = (data.agent_role ?? data.role) as string | undefined;
+    if (!role) return;
+    const agent = agents.find((a) => a.role === role);
+    if (agent) {
+      autoResolved.current = true;
+      onChange({
+        ...data,
+        agentId: agent.id,
+        agentName: agent.name,
+        role: agent.role ?? "",
+        modelProvider: agent.model_provider,
+        modelName: agent.model_name,
+        toolsCount: agent.tools_enabled.length,
+        label: (data.label as string) || agent.name,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
+
+  // selectedAgent: look up by agentId, or fall back to role-based match (pre-resolution)
+  const selectedAgent =
+    agents.find((a) => a.id === (data.agentId as string)) ??
+    agents.find((a) => a.role === ((data.agent_role ?? data.role) as string | undefined));
 
   // Display info: prefer live agent data, fall back to normalized fields already in data
   const displayRole     = selectedAgent?.role ?? (data.role as string | undefined);
@@ -63,6 +89,7 @@ function AgentConfig({ data, onChange }: { data: Record<string, unknown>; onChan
 
   function handleAgentChange(id: string) {
     const agent = agents.find((a) => a.id === id);
+    autoResolved.current = true;
     onChange({
       ...data,
       agentId: id,
@@ -70,6 +97,7 @@ function AgentConfig({ data, onChange }: { data: Record<string, unknown>; onChan
       role: agent?.role ?? "",
       modelProvider: agent?.model_provider ?? "",
       modelName: agent?.model_name ?? "",
+      toolsCount: agent?.tools_enabled.length ?? 0,
       label: agent?.name ?? data.label,
     });
   }
@@ -86,7 +114,7 @@ function AgentConfig({ data, onChange }: { data: Record<string, unknown>; onChan
           </div>
         ) : (
           <Select
-            value={(data.agentId as string) ?? ""}
+            value={(data.agentId as string) ?? selectedAgent?.id ?? ""}
             onChange={(e) => handleAgentChange(e.target.value)}
           >
             <option value="">— select agent —</option>
@@ -226,7 +254,8 @@ export function NodeConfigPanel({ node, onChange }: NodeConfigPanelProps) {
   const nodeType = node.type ?? "agent";
 
   function handleChange(newData: Record<string, unknown>) {
-    onChange(node.id, newData);
+    // node is non-null here — we returned early above if (!node)
+    onChange(node!.id, newData);
   }
 
   return (

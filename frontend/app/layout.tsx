@@ -3,8 +3,8 @@ import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 
 export const metadata: Metadata = {
-  title: "Yuno Agent Platform",
-  description: "AI Agent Orchestration Platform",
+  title: "AgentOps Studio",
+  description: "Visual multi-agent orchestration platform",
 };
 
 export default function RootLayout({

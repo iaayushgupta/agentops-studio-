@@ -236,20 +236,30 @@ class WorkflowCompiler:
         Parameters
         ----------
         workflow : Workflow ORM instance (must have .graph_json dict)
+
+        Supports two graph_json formats automatically:
+          • Old ReactFlow format  — nodes with ``id``/``type``/``data`` keys;
+                                    edges with ``source``/``target`` keys.
+          • Backend-native format — nodes with ``node_id``/``node_type``/``config_json``;
+                                    edges with ``source_node_id``/``target_node_id``;
+                                    optional top-level ``entry_node`` field.
         """
         graph_json: dict = workflow.graph_json
-        raw_nodes: list[dict] = graph_json.get("nodes", [])
-        raw_edges: list[dict] = graph_json.get("edges", [])
 
-        # Build fast-lookup dicts
-        nodes: dict[str, dict] = {n["id"]: n for n in raw_nodes}
+        # Normalise both formats into a common internal representation
+        nodes, adjacency = self._normalize_graph(graph_json)
 
-        # adjacency: source_id → list of (edge_id, target_id, edge_data)
-        adjacency: dict[str, list[tuple[str, str, dict]]] = {}
-        for e in raw_edges:
-            adjacency.setdefault(e["source"], []).append(
-                (e["id"], e["target"], e.get("data") or {})
-            )
+        # ── Determine entry point ─────────────────────────────────────────────
+        # New format: top-level "entry_node" field gives the first real agent node
+        # Old format: find the "start" node and take its first outgoing edge target
+        entry_node_id: str | None = graph_json.get("entry_node") or None
+        if not entry_node_id:
+            for nid, nd in nodes.items():
+                if nd["type"] == "start":
+                    out = adjacency.get(nid, [])
+                    if out:
+                        entry_node_id = out[0][1]
+                    break
 
         # ── Build StateGraph ──────────────────────────────────────────────────
         graph = StateGraph(WorkflowState)
@@ -260,24 +270,21 @@ class WorkflowCompiler:
                 fn = self._build_agent_node(node_id, node["data"])
                 graph.add_node(node_id, fn)
             elif node["type"] == "end":
-                # BUG 1 fix: end node is a pure state composition function, NOT an LLM call
+                # end node is a pure state composition function, NOT an LLM call
                 graph.add_node(node_id, self._build_end_node(node_id))
+
+        # Set entry point
+        if entry_node_id:
+            graph.set_entry_point(entry_node_id)
 
         # Wire edges
         for node_id, node in nodes.items():
             ntype = node["type"]
 
-            if ntype == "start":
-                # Entry point = target of start's first outgoing edge
-                out = adjacency.get(node_id, [])
-                if out:
-                    graph.set_entry_point(out[0][1])
-                continue
+            if ntype in ("start", "condition"):
+                continue  # start handled above; condition handled via incoming node
 
-            if ntype == "condition":
-                continue  # handled when processing their incoming node
             if ntype == "end":
-                # BUG 1 fix: end node is now a real LG node; wire it to LangGraph END
                 graph.add_edge(node_id, END)
                 continue
 
@@ -289,7 +296,7 @@ class WorkflowCompiler:
                 tgt_type = tgt_node.get("type")
 
                 if tgt_type == "end":
-                    # BUG 1 fix: route to the end composition node, not directly to LangGraph END
+                    # Route to the end composition node, not directly to LangGraph END
                     graph.add_edge(node_id, tgt_id)
 
                 elif tgt_type == "condition":
@@ -307,6 +314,69 @@ class WorkflowCompiler:
 
         return graph.compile(checkpointer=checkpointer)
 
+    # ── Graph normalisation ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _normalize_graph(
+        graph_json: dict,
+    ) -> tuple[dict[str, dict], dict[str, list[tuple[str, str, dict]]]]:
+        """
+        Normalise both old (ReactFlow) and new (backend-native) graph_json formats
+        into a common internal representation so the rest of compile() is format-agnostic.
+
+        Returns
+        -------
+        nodes     : {node_id: {"id": node_id, "type": node_type, "data": data_dict}}
+        adjacency : {source_id: [(edge_id, target_id, edge_data_dict), ...]}
+
+        Old ReactFlow format keys  → internal key
+          id                        → id / type / data
+          type                      →
+          data                      →
+          source / target / data    → adjacency entries
+
+        New backend-native format keys → internal key
+          node_id                    → id / type / data
+          node_type                  →
+          config_json                →
+          source_node_id             → adjacency entries
+          target_node_id             →
+          condition_json             →
+        """
+        raw_nodes: list[dict] = graph_json.get("nodes", [])
+        raw_edges: list[dict] = graph_json.get("edges", [])
+
+        nodes: dict[str, dict] = {}
+        for n in raw_nodes:
+            if "node_id" in n:
+                # New backend-native format
+                node_id = n["node_id"]
+                node_type = n["node_type"]
+                data: dict = n.get("config_json") or {}
+            else:
+                # Old ReactFlow format
+                node_id = n["id"]
+                node_type = n["type"]
+                data = n.get("data") or {}
+            nodes[node_id] = {"id": node_id, "type": node_type, "data": data}
+
+        adjacency: dict[str, list[tuple[str, str, dict]]] = {}
+        for e in raw_edges:
+            if "source_node_id" in e:
+                # New backend-native format
+                src = e["source_node_id"]
+                tgt = e["target_node_id"]
+                edge_data: dict = e.get("condition_json") or {}
+            else:
+                # Old ReactFlow format
+                src = e["source"]
+                tgt = e["target"]
+                edge_data = e.get("data") or {}
+            edge_id: str = e.get("id") or e.get("label") or f"{src}->{tgt}"
+            adjacency.setdefault(src, []).append((edge_id, tgt, edge_data))
+
+        return nodes, adjacency
+
     # ── Node builders ─────────────────────────────────────────────────────────
 
     def _build_agent_node(self, node_id: str, node_data: dict) -> Callable:
@@ -320,7 +390,8 @@ class WorkflowCompiler:
         6. Broadcasts step events
         7. Returns state updates
         """
-        agent_name: str = node_data.get("agent") or node_id
+        # Old format uses "agent" key; new format uses "agent_name" key
+        agent_name: str = node_data.get("agent") or node_data.get("agent_name") or node_id
         obs = ObservabilityService()
 
         async def agent_node(state: WorkflowState) -> dict:  # noqa: C901

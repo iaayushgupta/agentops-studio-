@@ -32,8 +32,9 @@ import ConditionNode from "./nodes/ConditionNode";
 import TriggerNode from "./nodes/TriggerNode";
 import EndNode from "./nodes/EndNode";
 import { NodeConfigPanel } from "./NodeConfigPanel";
-import { createWorkflow, updateWorkflow, triggerRun, getWorkflows } from "@/lib/api";
+import { createWorkflow, updateWorkflow, triggerRun, getWorkflows, getAgents } from "@/lib/api";
 import { useRunStream } from "@/lib/websocket";
+import { normalizeNodes, normalizeEdges } from "@/lib/normalizeWorkflow";
 import type { Workflow } from "@/lib/api";
 
 // ── Node types registration ───────────────────────────────────────────────────
@@ -294,9 +295,9 @@ function CanvasInner({ workflow, initialNodes, initialEdges }: CanvasInnerProps)
     async (tplKey: "payment_triage" | "support_escalation") => {
       setTemplateOpen(false);
 
-      // First try to find an existing workflow with this template
+      // First try to find an existing workflow with this template name
       try {
-        const workflows = await getWorkflows();
+        const [workflows, agents] = await Promise.all([getWorkflows(), getAgents()]);
         const match = workflows.find((w) =>
           tplKey === "payment_triage"
             ? w.name.toLowerCase().includes("payment") || w.name.toLowerCase().includes("triage")
@@ -304,8 +305,9 @@ function CanvasInner({ workflow, initialNodes, initialEdges }: CanvasInnerProps)
         );
         if (match && match.graph_json?.nodes) {
           const gj = match.graph_json as { nodes: Node[]; edges: Edge[] };
-          rfSetNodes(gj.nodes ?? []);
-          rfSetEdges(gj.edges ?? []);
+          // Normalize so agent slugs/roles resolve to full names and model info
+          rfSetNodes(normalizeNodes(gj.nodes ?? [], agents));
+          rfSetEdges(normalizeEdges(gj.edges ?? []));
           setWorkflowName(match.name);
           setWorkflowId(match.id);
           return;
@@ -314,7 +316,7 @@ function CanvasInner({ workflow, initialNodes, initialEdges }: CanvasInnerProps)
         // Fall through to hardcoded template
       }
 
-      // Use hardcoded template
+      // Use hardcoded template (already in ReactFlow-native format)
       const tpl = tplKey === "payment_triage" ? PAYMENT_TRIAGE_TEMPLATE : SUPPORT_ESCALATION_TEMPLATE;
       rfSetNodes(tpl.nodes);
       rfSetEdges(tpl.edges);

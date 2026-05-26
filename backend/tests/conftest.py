@@ -3,6 +3,25 @@ Shared pytest fixtures for backend critical-path tests.
 
 All async fixtures/tests work without @pytest.mark.asyncio because
 pyproject.toml sets asyncio_mode = "auto".
+
+Test-isolation strategy
+-----------------------
+Two complementary layers keep the real Postgres DB clean:
+
+1. cleanup_test_agents (session-scoped, autouse)
+   Runs ONCE at the start of the test session. Deletes any leftover
+   "crud_test_agent_*" rows that survived a previous interrupted run.
+   The five demo agents are protected (their names are in _SEEDED_NAMES).
+
+2. rollback_after_test (function-scoped, autouse)
+   Before each test it overrides FastAPI's get_db dependency to inject a
+   shared per-test DB session.  Route handlers flush (making writes visible
+   within the transaction) but never commit.  After the test the session is
+   rolled back, undoing every INSERT / UPDATE / DELETE made via the HTTP API.
+
+   Tests that call _execute_run() directly use their own AsyncSessionLocal
+   sessions (not covered by the override), but those create only run-keyed
+   rows (UUIDs) and do not pollute agent-specific queries.
 """
 from __future__ import annotations
 
@@ -10,10 +29,10 @@ import asyncio
 
 import pytest
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.models import Agent, Workflow, WorkflowStatus
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, get_db
 from app.main import app
 
 
@@ -30,6 +49,89 @@ def event_loop():
     loop = policy.new_event_loop()
     yield loop
     loop.close()
+
+
+# ── Test-isolation helpers ────────────────────────────────────────────────────
+
+# All seeded demo agents that must never be deleted by cleanup fixtures.
+_SEEDED_NAMES = frozenset({
+    # Payment Failure Triage
+    "intake_agent",
+    "investigator_agent",
+    "resolution_agent",
+    "escalation_agent",
+    "reviewer_agent",
+    # Support Escalation
+    "support_triage_agent",
+    "tier1_support_agent",
+    "tier2_support_agent",
+    # Fraud Detection
+    "fraud_analyzer_agent",
+    "risk_scorer_agent",
+    "alert_agent",
+})
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def cleanup_test_agents():
+    """
+    One-time cleanup at session start: delete any non-seeded agents that
+    survived a previous interrupted test run.  Runs again at session end for
+    symmetry.  Seeded demo agents (_SEEDED_NAMES) are always preserved.
+    """
+    async def _purge() -> None:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Agent).where(Agent.name.notin_(_SEEDED_NAMES))
+            )
+            await db.commit()
+
+    await _purge()   # before any test runs
+    yield
+    await _purge()   # after all tests finish
+
+
+@pytest.fixture
+async def db_session():
+    """
+    Per-test async DB session.  All writes are flushed (visible within the
+    same connection/transaction) but never committed to the database.
+    rollback_after_test calls session.rollback() in teardown to discard
+    every change the test made.
+    """
+    async with AsyncSessionLocal() as session:
+        yield session
+
+
+@pytest.fixture(autouse=True)
+async def rollback_after_test(db_session):
+    """
+    Override FastAPI's get_db so every HTTPX-driven API call within this test
+    uses the same transactional db_session.  The override flushes after each
+    request (making writes visible within the transaction) but never commits.
+    After the test, db_session.rollback() discards all changes.
+
+    Tests that call _execute_run() directly use their own AsyncSessionLocal
+    sessions, so their run/step/message rows are committed but do not affect
+    agent-name uniqueness constraints.
+    """
+    async def _get_db_override():
+        try:
+            yield db_session
+            # Flush so subsequent requests within the same test can see the
+            # write (same-connection reads see uncommitted data in Postgres).
+            await db_session.flush()
+        except Exception:
+            # Let FastAPI's exception handler produce the appropriate response.
+            # rollback_after_test will call session.rollback() in teardown,
+            # recovering the session from any PostgreSQL error state.
+            raise
+
+    app.dependency_overrides[get_db] = _get_db_override
+    yield
+    # --- teardown ---
+    app.dependency_overrides.pop(get_db, None)
+    await db_session.rollback()
 
 
 # ── Mock LLM helpers ──────────────────────────────────────────────────────────

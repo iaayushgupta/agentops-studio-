@@ -5,12 +5,17 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Bot } from "lucide-react";
 
 export interface AgentNodeData {
-  label: string;
+  label?: string;
   agentId?: string;
   agentName?: string;
+  /** Canonical role field (set by normalizer or config panel) */
   role?: string;
+  /** Alternative role field key used by some backend payloads */
+  agent_role?: string;
   modelProvider?: string;
   modelName?: string;
+  /** Number of tools the agent has enabled — set by normalizeNodes */
+  toolsCount?: number;
   selected?: boolean;
 }
 
@@ -35,19 +40,28 @@ function AgentNode({ data, selected }: NodeProps) {
       </div>
 
       {/* Body */}
-      <div className="px-3 py-2 space-y-1.5">
-        {d.role && (
+      <div className="px-3 py-2 flex flex-wrap gap-1">
+        {/* Role badge — check both 'role' and 'agent_role' keys */}
+        {(d.role || d.agent_role) && (
           <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-100 text-violet-700">
-            {d.role}
+            {d.role || d.agent_role}
           </span>
         )}
+        {/* Model badge */}
         {d.modelName && (
-          <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 ml-1">
-            {d.modelProvider}/{d.modelName}
+          <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+            {d.modelName}
           </span>
         )}
-        {!d.role && !d.modelName && (
-          <span className="text-[10px] text-slate-400 italic">Not configured</span>
+        {/* Tools count badge */}
+        {typeof d.toolsCount === "number" && d.toolsCount > 0 && (
+          <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
+            {d.toolsCount} tools
+          </span>
+        )}
+        {/* Fallback — nothing configured yet */}
+        {!d.role && !d.agent_role && !d.modelName && (
+          <span className="text-[10px] text-slate-400 italic">Select agent</span>
         )}
       </div>
 

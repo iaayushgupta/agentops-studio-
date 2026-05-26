@@ -99,6 +99,13 @@ export default function DashboardPage() {
 
   const completedRuns = runs.filter((r) => r.status === "completed").length;
 
+  const workflowMap = workflows.reduce<Record<string, Workflow>>(
+    (acc, w) => ({ ...acc, [w.id]: w }),
+    {}
+  );
+
+  const formatCost = (c: number | null | undefined) => `$${(c ?? 0).toFixed(4)}`;
+
   return (
     <>
       <Header
@@ -202,7 +209,9 @@ export default function DashboardPage() {
                       </Link>
                     </td>
                     <td className="px-5 py-3 text-slate-600">
-                      {run.workflow_id ? run.workflow_id.slice(0, 8) + "…" : "—"}
+                      {run.workflow_id
+                        ? (workflowMap[run.workflow_id]?.name ?? run.workflow_id.slice(0, 8) + "…")
+                        : "—"}
                     </td>
                     <td className="px-5 py-3 text-slate-600">
                       {run.trigger_channel ?? "—"}
@@ -211,9 +220,7 @@ export default function DashboardPage() {
                       <StatusBadge status={run.status} />
                     </td>
                     <td className="px-5 py-3 text-slate-600">
-                      {run.total_cost_usd != null
-                        ? `$${run.total_cost_usd.toFixed(4)}`
-                        : "—"}
+                      {formatCost(run.total_cost_usd)}
                     </td>
                     <td className="px-5 py-3 text-slate-500">
                       {run.started_at

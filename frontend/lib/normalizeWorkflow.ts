@@ -89,6 +89,7 @@ function normalizeAgentData(
       role: agent.role ?? "",
       modelProvider: agent.model_provider,
       modelName: agent.model_name,
+      toolsCount: agent.tools_enabled.length,
       label: raw.label ?? agent.name,
     };
   }

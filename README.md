@@ -4,6 +4,16 @@ Visual multi-agent orchestration platform — configure agents, build async work
 
 ---
 
+## Who is this for?
+
+Technical teams use AgentOps Studio to deploy agent workflows
+without writing orchestration code. Non-technical operators use
+it to configure, run, and monitor those workflows independently —
+changing agent behavior, adding conditions, and reading results
+without touching the codebase.
+
+---
+
 ## 1. Quick Start
 
 **Prerequisites:** Docker Desktop, a free [Google AI Studio](https://aistudio.google.com) key, a free [Groq](https://console.groq.com) key, and optionally a Telegram bot token from [@BotFather](https://t.me/botfather).

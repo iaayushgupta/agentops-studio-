@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { CheckCircle, XCircle, Loader2, Clock, DollarSign, Zap } from "lucide-react";
 import { Header } from "@/components/layout/Header";
-import { getRun, getRunTimeline, cancelRun } from "@/lib/api";
+import { getRun, getRunTimeline, cancelRun, getAgents } from "@/lib/api";
 import { useRunStream } from "@/lib/websocket";
-import type { Run, RunTimeline } from "@/lib/api";
+import type { Run, RunTimeline, Agent } from "@/lib/api";
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 
@@ -15,6 +15,25 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "failed") return <XCircle className="w-4 h-4 text-red-500" />;
   if (status === "running" || status === "pending") return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
   return <Clock className="w-4 h-4 text-slate-400" />;
+}
+
+// Role badge — colour-coded by agent role
+const ROLE_COLORS: Record<string, string> = {
+  intake:       "bg-blue-100 text-blue-700",
+  investigator: "bg-purple-100 text-purple-700",
+  resolver:     "bg-emerald-100 text-emerald-700",
+  reviewer:     "bg-amber-100 text-amber-700",
+  escalator:    "bg-red-100 text-red-700",
+  escalation:   "bg-red-100 text-red-700",
+};
+
+function RoleBadge({ role }: { role: string | null | undefined }) {
+  if (!role) return null;
+  return (
+    <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${ROLE_COLORS[role] ?? "bg-slate-100 text-slate-600"}`}>
+      {role}
+    </span>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -40,6 +59,7 @@ export default function RunDetailPage() {
 
   const [run, setRun] = useState<Run | null>(null);
   const [timeline, setTimeline] = useState<RunTimeline | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
 
@@ -51,8 +71,8 @@ export default function RunDetailPage() {
 
   // Load initial state
   useEffect(() => {
-    Promise.all([getRun(runId), getRunTimeline(runId)])
-      .then(([r, t]) => { setRun(r); setTimeline(t); })
+    Promise.all([getRun(runId), getRunTimeline(runId), getAgents()])
+      .then(([r, t, a]) => { setRun(r); setTimeline(t); setAgents(a); })
       .finally(() => setLoading(false));
   }, [runId]);
 
@@ -85,6 +105,22 @@ export default function RunDetailPage() {
   // not on the shallow GET /runs/{id} response. Prefer timeline, fall back
   // to the live WebSocket cost for in-progress runs.
   const effectiveCost = wsCost || timeline?.run?.total_cost_usd || 0;
+
+  // Agent lookup: id → Agent (for resolving UUIDs to human names)
+  const agentMap = agents.reduce<Record<string, Agent>>(
+    (acc, a) => ({ ...acc, [a.id]: a }),
+    {}
+  );
+
+  // Replace agent_id UUID in event data with resolved name for readability
+  function resolveEventData(evtData: Record<string, unknown>): Record<string, unknown> {
+    if (!evtData || typeof evtData !== "object") return evtData;
+    const out = { ...evtData };
+    if (typeof out.agent_id === "string" && agentMap[out.agent_id]) {
+      out.agent_id = agentMap[out.agent_id].name;
+    }
+    return out;
+  }
 
   return (
     <>
@@ -176,7 +212,7 @@ export default function RunDetailPage() {
                     </span>
                     <span className="text-violet-700 font-medium shrink-0">{evt.event_type}</span>
                     <span className="text-slate-500 truncate">
-                      {JSON.stringify(evt.data)}
+                      {JSON.stringify(resolveEventData(evt.data as Record<string, unknown>))}
                     </span>
                   </div>
                 ))
@@ -196,9 +232,12 @@ export default function RunDetailPage() {
                 <div key={step.id} className="px-5 py-3 flex items-start gap-3">
                   <span className="text-xs text-slate-400 font-mono pt-0.5 w-5 shrink-0">{i + 1}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <StatusBadge status={step.status} />
-                      <span className="text-xs text-slate-500 font-mono">{step.agent_id?.slice(0, 8)}…</span>
+                      <span className="text-xs font-medium text-slate-800">
+                        {agentMap[step.agent_id ?? ""]?.name ?? step.agent_id?.slice(0, 8) ?? "—"}
+                      </span>
+                      <RoleBadge role={agentMap[step.agent_id ?? ""]?.role} />
                     </div>
                     {step.output && (
                       <pre className="mt-1 text-xs text-slate-600 bg-slate-50 rounded p-2 overflow-auto max-h-28 whitespace-pre-wrap">

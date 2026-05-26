@@ -67,8 +67,20 @@ async def get_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db
     return await _get_workflow_or_404(workflow_id, db)
 
 
+@router.put("/{workflow_id}", response_model=WorkflowResponse)
+async def update_workflow_put(workflow_id: uuid.UUID, payload: WorkflowUpdate, db: AsyncSession = Depends(get_db)):
+    """Full replacement update — used by the Canvas Save button (PUT)."""
+    wf = await _get_workflow_or_404(workflow_id, db)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(wf, field, value)
+    await db.flush()
+    await db.refresh(wf)
+    return wf
+
+
 @router.patch("/{workflow_id}", response_model=WorkflowResponse)
-async def update_workflow(workflow_id: uuid.UUID, payload: WorkflowUpdate, db: AsyncSession = Depends(get_db)):
+async def update_workflow_patch(workflow_id: uuid.UUID, payload: WorkflowUpdate, db: AsyncSession = Depends(get_db)):
+    """Partial update — kept for API consumers that prefer PATCH semantics."""
     wf = await _get_workflow_or_404(workflow_id, db)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(wf, field, value)

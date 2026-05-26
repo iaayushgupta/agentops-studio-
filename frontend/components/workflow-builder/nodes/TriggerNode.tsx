@@ -5,7 +5,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Send, MousePointerClick } from "lucide-react";
 
 export interface TriggerNodeData {
-  label: string;
+  label?: string;
   channel?: "telegram" | "manual";
 }
 

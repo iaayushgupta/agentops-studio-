@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { Header } from "@/components/layout/Header";
-import { getRunsList } from "@/lib/api";
-import type { Run } from "@/lib/api";
+import { getRunsList, getWorkflows } from "@/lib/api";
+import type { Run, Workflow } from "@/lib/api";
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -22,17 +22,28 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+const formatCost = (c: number | null | undefined) => `$${(c ?? 0).toFixed(4)}`;
+
 export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     setLoading(true);
-    try { setRuns(await getRunsList({ limit: 50 })); }
-    finally { setLoading(false); }
+    try {
+      const [r, w] = await Promise.all([getRunsList({ limit: 50 }), getWorkflows()]);
+      setRuns(r);
+      setWorkflows(w);
+    } finally { setLoading(false); }
   }
 
   useEffect(() => { load(); }, []);
+
+  const workflowMap = workflows.reduce<Record<string, Workflow>>(
+    (acc, w) => ({ ...acc, [w.id]: w }),
+    {}
+  );
 
   return (
     <>
@@ -82,15 +93,15 @@ export default function RunsPage() {
                           {run.id.slice(0, 8)}…
                         </Link>
                       </td>
-                      <td className="px-5 py-3 text-slate-500 font-mono text-xs">
-                        {run.workflow_id ? run.workflow_id.slice(0, 8) + "…" : "—"}
+                      <td className="px-5 py-3 text-slate-600">
+                        {run.workflow_id
+                          ? (workflowMap[run.workflow_id]?.name ?? run.workflow_id.slice(0, 8) + "…")
+                          : "—"}
                       </td>
                       <td className="px-5 py-3 text-slate-600">{run.trigger_channel ?? "—"}</td>
                       <td className="px-5 py-3"><StatusBadge status={run.status} /></td>
                       <td className="px-5 py-3 text-slate-600">
-                        {run.total_cost_usd != null && run.total_cost_usd !== undefined
-                          ? `$${(run.total_cost_usd as number).toFixed(4)}`
-                          : "—"}
+                        {formatCost(run.total_cost_usd)}
                       </td>
                       <td className="px-5 py-3 text-slate-500">{duration}</td>
                       <td className="px-5 py-3 text-slate-500 text-xs">

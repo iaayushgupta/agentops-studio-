@@ -1,4 +1,4 @@
-"""Seed the five demo agents for the payment-triage workflow."""
+"""Seed demo agents for all workflows (payment-triage + support-escalation + fraud-detection)."""
 import logging
 from sqlalchemy import delete, select
 from app.db.session import AsyncSessionLocal
@@ -96,6 +96,120 @@ AGENTS = [
         "model_name": "llama-3.3-70b-versatile",
         "temperature": 0.1,
     },
+
+    # ── Support Escalation workflow agents ────────────────────────────────────
+    {
+        "name": "support_triage_agent",
+        "description": "Classifies inbound support requests by priority and category.",
+        "role": "support_triage",
+        "system_prompt": (
+            "You are a customer support triage agent. "
+            "Classify the support request priority.\n"
+            "Output ONLY valid JSON:\n"
+            '{"priority": "high|low", '
+            '"category": "technical|billing|account|other", '
+            '"summary": "one sentence description", '
+            '"customer_name": "extracted name or unknown"}'
+        ),
+        "tools_enabled": [],
+        "model_provider": "groq",
+        "model_name": "llama-3.3-70b-versatile",
+        "temperature": 0.1,
+    },
+    {
+        "name": "tier1_support_agent",
+        "description": "Handles routine, low-priority customer support issues.",
+        "role": "tier1_support",
+        "system_prompt": (
+            "You are a Tier 1 support agent handling routine issues. "
+            "Provide a standard resolution for the customer issue.\n"
+            "Output ONLY valid JSON:\n"
+            '{"resolution": "step by step resolution", '
+            '"customer_message": "Dear customer, [friendly resolution message]", '
+            '"resolved": true, '
+            '"escalate": false}'
+        ),
+        "tools_enabled": ["calculator"],
+        "model_provider": "groq",
+        "model_name": "llama-3.3-70b-versatile",
+        "temperature": 0.2,
+    },
+    {
+        "name": "tier2_support_agent",
+        "description": "Handles complex and high-priority support issues as a senior specialist.",
+        "role": "tier2_support",
+        "system_prompt": (
+            "You are a senior Tier 2 support specialist handling "
+            "complex and high-priority issues.\n"
+            "Output ONLY valid JSON:\n"
+            '{"resolution": "detailed technical resolution", '
+            '"customer_message": "Dear customer, your high-priority issue has been '
+            'escalated to our senior team. [specific resolution or next steps]", '
+            '"ticket_id": "TKT-[random 4 digit number]", '
+            '"follow_up_hours": 2}'
+        ),
+        "tools_enabled": [],
+        "model_provider": "groq",
+        "model_name": "llama-3.3-70b-versatile",
+        "temperature": 0.2,
+    },
+
+    # ── Fraud Detection workflow agents ───────────────────────────────────────
+    {
+        "name": "fraud_analyzer_agent",
+        "description": "Analyzes transaction patterns for suspicious activity using payment tools.",
+        "role": "fraud_analyzer",
+        "system_prompt": (
+            "You are a fraud detection agent for Yuno payments. "
+            "Analyze transaction patterns for suspicious activity. "
+            "Use get_transaction and check_routing_logs tools.\n"
+            "Output ONLY valid JSON:\n"
+            '{"transaction_id": "...", '
+            '"suspicious_patterns": ["pattern1", "pattern2"], '
+            '"fraud_indicators": ["indicator1"], '
+            '"preliminary_risk": "high|medium|low", '
+            '"analysis_summary": "one paragraph summary"}'
+        ),
+        "tools_enabled": ["get_transaction", "check_routing_logs"],
+        "model_provider": "groq",
+        "model_name": "llama-3.3-70b-versatile",
+        "temperature": 0.1,
+    },
+    {
+        "name": "risk_scorer_agent",
+        "description": "Assigns a numeric risk score and recommendation based on fraud analysis.",
+        "role": "risk_scorer",
+        "system_prompt": (
+            "You are a risk scoring agent. Based on fraud analysis, assign a risk score.\n"
+            "Output ONLY valid JSON:\n"
+            '{"risk_score": 8, '
+            '"risk_level": "high|medium|low", '
+            '"score_reason": "explanation of score", '
+            '"recommendation": "block|review|clear", '
+            '"confidence": 0.92}'
+        ),
+        "tools_enabled": ["get_psp_status"],
+        "model_provider": "groq",
+        "model_name": "llama-3.3-70b-versatile",
+        "temperature": 0.1,
+    },
+    {
+        "name": "alert_agent",
+        "description": "Composes the customer-facing alert and internal note based on risk level.",
+        "role": "alert",
+        "system_prompt": (
+            "You are a fraud alert agent. Compose the appropriate response based on risk level.\n"
+            "Output ONLY valid JSON:\n"
+            '{"action_taken": "BLOCKED|FLAGGED_FOR_REVIEW|CLEARED", '
+            '"customer_message": "Dear customer, [appropriate message based on action]", '
+            '"internal_note": "Internal: [reason for action, risk score]", '
+            '"alert_level": "critical|warning|info"}'
+        ),
+        "tools_enabled": [],
+        "model_provider": "groq",
+        "model_name": "llama-3.3-70b-versatile",
+        "temperature": 0.1,
+    },
 ]
 
 
@@ -112,4 +226,8 @@ async def run() -> None:
             db.add(Agent(**agent_data))
 
         await db.commit()
-        logger.info("Agents seeded (DELETE+INSERT): %d agents", len(AGENTS))
+        logger.info(
+            "Agents seeded (DELETE+INSERT): %d agents "
+            "(5 payment-triage + 3 support-escalation + 3 fraud-detection)",
+            len(AGENTS),
+        )

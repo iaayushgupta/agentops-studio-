@@ -32,7 +32,7 @@ export function Sidebar() {
           <Zap className="w-4 h-4 text-white" />
         </div>
         <span className="text-white font-semibold tracking-tight text-lg">
-          Yuno
+          AgentOps Studio
         </span>
         <span className="text-slate-500 text-xs ml-auto">v0.1</span>
       </div>
@@ -61,7 +61,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-5 py-4 border-t border-slate-700/50 text-xs text-slate-600">
-        Yuno Agent Platform
+        AgentOps Studio
       </div>
     </aside>
   );
