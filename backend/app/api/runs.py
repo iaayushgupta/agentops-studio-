@@ -27,6 +27,9 @@ class RunResponse(BaseModel):
     started_at: Any
     ended_at: Any
     created_at: Any
+    total_cost_usd: float | None = None
+    error_message: str | None = None
+    final_response: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -44,11 +47,15 @@ async def list_runs(
     skip: int = 0,
     limit: int = 100,
     workflow_id: uuid.UUID | None = None,
+    status: RunStatus | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Run)
     if workflow_id:
         q = q.where(Run.workflow_id == workflow_id)
+    if status:
+        q = q.where(Run.status == status)
+    q = q.order_by(Run.created_at.desc())
     result = await db.execute(q.offset(skip).limit(limit))
     return result.scalars().all()
 

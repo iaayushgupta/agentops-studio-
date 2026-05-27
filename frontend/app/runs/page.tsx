@@ -38,7 +38,11 @@ export default function RunsPage() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const workflowMap = workflows.reduce<Record<string, Workflow>>(
     (acc, w) => ({ ...acc, [w.id]: w }),

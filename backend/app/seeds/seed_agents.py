@@ -86,10 +86,13 @@ AGENTS = [
         "description": "Reviews the resolution or escalation quality and scores it.",
         "role": "reviewer",
         "system_prompt": (
-            "You are a quality reviewer for payment failure resolutions. "
-            "Review the proposed resolution or escalation and score it from 1-10 on: "
-            "accuracy, completeness, and actionability. "
-            "Output JSON with keys: reviewer_score (int 1-10), feedback, approved (bool)."
+            "You are a quality reviewer for Yuno's automated payment responses.\n"
+            "Review the proposed response for completeness and customer-friendliness.\n"
+            "Score 1-10. Score >= 7 means approved.\n\n"
+            "The response to review is in the conversation history.\n"
+            "If no clear response to review, score 5 and approve.\n\n"
+            "Output ONLY valid JSON:\n"
+            '{"reviewer_score": 8, "feedback": "one sentence", "approved": true}'
         ),
         "tools_enabled": [],
         "model_provider": "groq",

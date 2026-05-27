@@ -106,18 +106,25 @@ export default function RunDetailPage() {
   // to the live WebSocket cost for in-progress runs.
   const effectiveCost = wsCost || timeline?.run?.total_cost_usd || 0;
 
-  // Agent lookup: id → Agent (for resolving UUIDs to human names)
-  const agentMap = agents.reduce<Record<string, Agent>>(
+  // Agent lookup: two maps so step.agent_id works whether it's a UUID or a name string
+  const agentById = agents.reduce<Record<string, Agent>>(
     (acc, a) => ({ ...acc, [a.id]: a }),
     {}
   );
+  const agentByName = agents.reduce<Record<string, Agent>>(
+    (acc, a) => ({ ...acc, [a.name]: a }),
+    {}
+  );
+  console.log("agentMap keys:", Object.keys(agentById));
+  console.log("first step agent_id:", timeline?.steps[0]?.agent_id);
 
-  // Replace agent_id UUID in event data with resolved name for readability
+  // Replace agent_id in event data with resolved name for readability
   function resolveEventData(evtData: Record<string, unknown>): Record<string, unknown> {
     if (!evtData || typeof evtData !== "object") return evtData;
     const out = { ...evtData };
-    if (typeof out.agent_id === "string" && agentMap[out.agent_id]) {
-      out.agent_id = agentMap[out.agent_id].name;
+    if (typeof out.agent_id === "string") {
+      const resolved = agentById[out.agent_id] || agentByName[out.agent_id];
+      if (resolved) out.agent_id = resolved.name;
     }
     return out;
   }
@@ -228,25 +235,35 @@ export default function RunDetailPage() {
               <h2 className="font-medium text-slate-900 text-sm">Steps</h2>
             </div>
             <div className="divide-y divide-slate-100">
-              {timeline.steps.map((step, i) => (
-                <div key={step.id} className="px-5 py-3 flex items-start gap-3">
-                  <span className="text-xs text-slate-400 font-mono pt-0.5 w-5 shrink-0">{i + 1}</span>
-                  <div className="flex-1 min-w-0">
+              {timeline.steps.map((step, i) => {
+                const agent =
+                  agentById[step.agent_id ?? ""] ||
+                  agentByName[step.agent_id ?? ""] ||
+                  null;
+                return (
+                  <div key={step.id} className="px-5 py-3">
                     <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-slate-400 font-mono w-5 shrink-0">{i + 1}</span>
                       <StatusBadge status={step.status} />
-                      <span className="text-xs font-medium text-slate-800">
-                        {agentMap[step.agent_id ?? ""]?.name ?? step.agent_id?.slice(0, 8) ?? "—"}
-                      </span>
-                      <RoleBadge role={agentMap[step.agent_id ?? ""]?.role} />
+                      {agent ? (
+                        <>
+                          <span className="text-xs font-medium text-slate-800">{agent.name}</span>
+                          <RoleBadge role={agent.role} />
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          {step.agent_id?.slice(0, 8) || "unknown"}
+                        </span>
+                      )}
                     </div>
                     {step.output && (
-                      <pre className="mt-1 text-xs text-slate-600 bg-slate-50 rounded p-2 overflow-auto max-h-28 whitespace-pre-wrap">
+                      <pre className="mt-1 ml-7 text-xs text-slate-600 bg-slate-50 rounded p-2 overflow-auto max-h-28 whitespace-pre-wrap">
                         {JSON.stringify(step.output, null, 2)}
                       </pre>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

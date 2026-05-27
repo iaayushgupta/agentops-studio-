@@ -87,9 +87,6 @@ export interface Run {
   status: RunStatus;
   trigger_channel: string | null;
   trigger_payload: Record<string, unknown> | null;
-  // NOTE: error_message, total_cost_usd, and final_response are only returned
-  // by GET /runs/{id}/timeline (embedded run object), NOT by GET /runs or
-  // GET /runs/{id}. Treat them as optional when reading from list/single endpoints.
   error_message?: string | null;
   total_cost_usd?: number | null;
   final_response?: string | null;

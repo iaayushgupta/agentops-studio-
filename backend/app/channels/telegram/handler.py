@@ -26,8 +26,12 @@ class TelegramAdapter(ChannelAdapter):
         )
         await self._app.initialize()
         await self._app.start()
-        await self._app.updater.start_polling(drop_pending_updates=True)
-        logger.info("Telegram polling active")
+        await self._app.updater.start_polling(
+            poll_interval=1.0,
+            timeout=10,
+            drop_pending_updates=True,
+        )
+        logger.info("Telegram polling started — interval: 1s")
 
     async def stop(self) -> None:
         if self._app:

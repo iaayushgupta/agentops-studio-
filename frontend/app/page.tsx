@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bot, GitFork, PlayCircle, DollarSign, Plus, RefreshCw } from "lucide-react";
+import { Bot, GitFork, PlayCircle, DollarSign, Plus } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { getAgents, getWorkflows, getRunsList, getRunTimeline } from "@/lib/api";
 import type { Agent, Workflow, Run } from "@/lib/api";
@@ -95,7 +95,11 @@ export default function DashboardPage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   const completedRuns = runs.filter((r) => r.status === "completed").length;
 
@@ -111,15 +115,6 @@ export default function DashboardPage() {
       <Header
         title="Dashboard"
         subtitle="AgentOps Studio overview"
-        actions={
-          <button
-            onClick={load}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        }
       />
 
       <div className="flex-1 overflow-auto p-6 space-y-6">

@@ -57,6 +57,7 @@ class WorkflowState(TypedDict):
     iteration_count: int
     reviewer_score: float | None
     failure_type: str | None
+    priority: str | None                      # support-escalation path: high|low
     final_response: str | None
     trigger_payload: dict
     total_cost_usd: float                     # running cost (free tier → always 0)
@@ -608,8 +609,14 @@ class WorkflowCompiler:
                 except (TypeError, ValueError):
                     pass
 
-            if "failure_type" in output:
-                updates["failure_type"] = output["failure_type"]
+            # Normalise to uppercase so condition cases ("psp_timeout", "CARD_DECLINE"…)
+            # match regardless of what the LLM capitalised
+            if "failure_type" in output and output["failure_type"]:
+                updates["failure_type"] = str(output["failure_type"]).upper()
+
+            # Support-escalation path — promote priority into a dedicated state slot
+            if "priority" in output and output["priority"]:
+                updates["priority"] = output["priority"]
 
             # Build final_response from whichever key the agent produced
             for key in ("customer_message", "resolution", "escalation_message",
@@ -666,7 +673,13 @@ class WorkflowCompiler:
         cases: dict = data.get("cases", {})
 
         def router(state: dict) -> str:
-            field_val = state.get(field)
+            # Check dedicated state field first; fall back to current_output so
+            # condition routing works even when the promoting step hasn't run yet
+            # or when the field only exists in the merged output dict.
+            field_val = (
+                state.get(field)
+                or state.get("current_output", {}).get(field)
+            )
 
             if op_str and threshold is not None:
                 # Numeric comparison
