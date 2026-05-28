@@ -308,9 +308,9 @@ make shell
 
 ---
 
-## 12. Demo
+## Demo
 
-[Video link — add after recording]
+https://github.com/iaayushgupta/agentops-studio-/raw/main/docs/assets/demo.mp4
 
 ---
 
