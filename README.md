@@ -310,7 +310,7 @@ make shell
 
 ## Demo
 
-https://github.com/iaayushgupta/agentops-studio-/raw/main/docs/assets/demo.mp4
+https://github.com/iaayushgupta/agentops-studio-/raw/main/docs/assets/demo-compressed.mp4
 
 ---
 
