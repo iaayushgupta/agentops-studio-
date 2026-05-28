@@ -310,7 +310,9 @@ make shell
 
 ## Demo
 
-https://github.com/iaayushgupta/agentops-studio-/raw/main/docs/assets/demo-compressed.mp4
+[![AgentOps Studio Demo](https://img.youtube.com/vi/YOUR_VIDEO_ID/maxresdefault.jpg)](https://youtu.be/tYDgstYFCkM)
+
+*▶ Click to watch — Telegram trigger → 5 agents → live timeline → customer response (5 min)*
 
 ---
 
