@@ -163,6 +163,86 @@ def _eval_op(op_str: str, value: Any, threshold: Any) -> bool:
     return fn(value, threshold)
 
 
+def get_field_value(state: dict, field: str) -> Any:
+    """
+    Resolve a condition field from state with three fallback layers.
+
+    1. Dedicated top-level state field (e.g. state["failure_type"]).
+    2. Merged current_output dict (e.g. state["current_output"]["failure_type"]).
+    3. Scan all messages in reverse for any JSON blob that contains the field.
+       Handles markdown code fences and the common pattern where the LLM wraps
+       output in ```json … ```.
+
+    String values are always returned UPPER-CASED for normalised comparison.
+    Non-string scalars (int, float, bool) are returned as-is.
+    Returns "" when the field cannot be found anywhere.
+    """
+    # 1. Dedicated top-level state field
+    val = state.get(field)
+    if val is not None and val != "":
+        return str(val).upper() if isinstance(val, str) else val
+
+    # 2. current_output dict
+    val = state.get("current_output", {}).get(field)
+    if val is not None and val != "":
+        return str(val).upper() if isinstance(val, str) else val
+
+    # 3. Scan messages (newest first) for a JSON blob that contains the field
+    for msg in reversed(state.get("messages", [])):
+        content = getattr(msg, "content", "") or ""
+        if not content or "{" not in content:
+            continue
+        try:
+            clean = content
+            if "```" in clean:
+                parts = clean.split("```")
+                clean = parts[1] if len(parts) > 1 else clean
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            parsed = json.loads(clean.strip())
+            if isinstance(parsed, dict) and field in parsed and parsed[field] not in (None, ""):
+                val = parsed[field]
+                return str(val).upper() if isinstance(val, str) else val
+        except Exception:
+            continue
+
+    return ""
+
+
+def evaluate_condition(condition_json: dict, state: dict) -> bool:
+    """
+    Evaluate a single condition dict against state.
+
+    Expected condition_json keys:
+      field    — state field name to inspect
+      op       — operator string: eq, neq, gt, gte, lt, lte, in, not_in
+      value    — expected value or threshold
+
+    Uses get_field_value() so the field is resolved from all three state layers.
+    """
+    field = condition_json.get("field", "")
+    op = condition_json.get("op", "eq")
+    expected = condition_json.get("value", "")
+
+    actual = get_field_value(state, field)
+
+    # Normalise expected for case-insensitive string comparison
+    if isinstance(expected, str):
+        expected = expected.upper()
+    elif isinstance(expected, list):
+        expected = [str(v).upper() for v in expected]
+
+    if op in ("eq", "=="):    return actual == expected
+    if op in ("neq", "!="):   return actual != expected
+    if op in ("gt", ">"):     return float(actual or 0) > float(expected)
+    if op in ("gte", ">="):   return float(actual or 0) >= float(expected)
+    if op in ("lt", "<"):     return float(actual or 0) < float(expected)
+    if op in ("lte", "<="):   return float(actual or 0) <= float(expected)
+    if op == "in":            return actual in expected
+    if op == "not_in":        return actual not in expected
+    return False
+
+
 # ── Final response composer (Python template — no LLM) ────────────────────────
 
 def compose_final_response(state: "WorkflowState") -> str:
@@ -465,11 +545,40 @@ class WorkflowCompiler:
                 llm = get_llm(agent.model_provider, agent.model_name)
                 llm_with_tools = llm.bind_tools(tools) if tools else llm
 
-                # Build message history: system prompt + existing conversation
-                lc_messages: list = (
-                    [SystemMessage(content=agent.system_prompt)]
-                    + state["messages"]
-                )
+                # Build message history: system prompt + conversation context.
+                #
+                # GROQ CONSTRAINT: consecutive messages with the same role cause
+                # the model to return empty content. state["messages"] is a list of
+                # [HumanMessage(trigger), AIMessage(agent1), AIMessage(agent2), ...]
+                # so tool-less agents (reviewer, alert, etc.) receive three back-to-back
+                # AIMessages and produce {"raw_response": ""}.
+                #
+                # Fix: for agents with no tools, collapse the full conversation into
+                # a single valid [System + Human] pair — the human message contains
+                # the original trigger text and all prior agent outputs separated by
+                # "---" dividers.  Tool-using agents keep the raw history unchanged.
+                if not tools:
+                    human_trigger = next(
+                        (m.content for m in state["messages"] if isinstance(m, HumanMessage)),
+                        "",
+                    )
+                    ai_outputs = [
+                        m.content for m in state["messages"]
+                        if isinstance(m, AIMessage) and m.content
+                    ]
+                    context_parts: list[str] = []
+                    if human_trigger:
+                        context_parts.append(f"Original request: {human_trigger}")
+                    if ai_outputs:
+                        context_parts.append(
+                            "Prior agent outputs:\n\n" + "\n\n---\n\n".join(ai_outputs)
+                        )
+                    lc_messages: list = [
+                        SystemMessage(content=agent.system_prompt),
+                        HumanMessage(content="\n\n".join(context_parts) or "No prior context."),
+                    ]
+                else:
+                    lc_messages = [SystemMessage(content=agent.system_prompt)] + state["messages"]
                 accumulated: list = []  # new messages produced this step
 
                 # ── 5. Create RunStep record (running) ────────────────────────
@@ -673,16 +782,12 @@ class WorkflowCompiler:
         cases: dict = data.get("cases", {})
 
         def router(state: dict) -> str:
-            # Check dedicated state field first; fall back to current_output so
-            # condition routing works even when the promoting step hasn't run yet
-            # or when the field only exists in the merged output dict.
-            field_val = (
-                state.get(field)
-                or state.get("current_output", {}).get(field)
-            )
+            # Resolve the field value across all three state layers:
+            # top-level state → current_output → message JSON scan.
+            field_val = get_field_value(state, field)
 
             if op_str and threshold is not None:
-                # Numeric comparison
+                # Numeric comparison (e.g. reviewer_score >= 7)
                 try:
                     result = _eval_op(op_str, float(field_val or 0), float(threshold))
                 except (TypeError, ValueError):
@@ -690,19 +795,21 @@ class WorkflowCompiler:
                 key = "true" if result else "false"
                 target = cases.get(key)
             else:
-                # Enum / string matching — BUG 4 fix: case-insensitive comparison
-                val_norm = str(field_val).lower() if field_val is not None else ""
+                # Enum / string matching — case-insensitive on both sides.
+                # get_field_value already uppercases strings; normalise cases to
+                # lowercase so "PSP_TIMEOUT" matches a case key of "psp_timeout".
+                val_norm = str(field_val).lower() if field_val else ""
                 cases_lower = {k.lower(): v for k, v in cases.items()}
                 target = cases_lower.get(val_norm)
                 if target is None:
                     target = cases_lower.get("default")
 
-            # Reviewer retry guard (per spec): if this is a score condition and
-            # we've already retried once, force the success-path to avoid infinite loop.
+            # Reviewer retry guard: force success path after first retry
+            # to prevent infinite loops when the reviewer keeps scoring low.
             if field == "reviewer_score" and state.get("iteration_count", 0) >= 2:
                 target = cases.get("true", target)
 
-            # Fallback: first case value
+            # Final fallback: first case value
             if target is None and cases:
                 target = next(iter(cases.values()))
 

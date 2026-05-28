@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Bot, GitFork, PlayCircle, DollarSign, Plus } from "lucide-react";
 import { Header } from "@/components/layout/Header";
-import { getAgents, getWorkflows, getRunsList, getRunTimeline } from "@/lib/api";
+import { getAgents, getWorkflows, getRunsList } from "@/lib/api";
 import type { Agent, Workflow, Run } from "@/lib/api";
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -56,9 +56,11 @@ export default function DashboardPage() {
   const [totalCost, setTotalCost] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // `loading` starts true and is only cleared after the first fetch.
+  // Subsequent interval refreshes update data silently — no loading flash.
+  // total_cost_usd is now returned directly by GET /runs (RunResponse includes it),
+  // so no per-run timeline fetch is needed.
   async function load() {
-    setLoading(true);
-    setTotalCost(null);
     try {
       const [a, w, r] = await Promise.all([
         getAgents(),
@@ -68,26 +70,7 @@ export default function DashboardPage() {
       setAgents(a);
       setWorkflows(w);
       setRuns(r);
-
-      // GET /runs does NOT return total_cost_usd — it's only in the timeline's
-      // embedded run object. Fetch timelines for completed runs in parallel to
-      // get the real costs, then sum them.
-      const completedIds = r
-        .filter((run) => run.status === "completed")
-        .map((run) => run.id);
-
-      if (completedIds.length > 0) {
-        const timelines = await Promise.all(
-          completedIds.map((id) => getRunTimeline(id).catch(() => null))
-        );
-        const sum = timelines.reduce(
-          (acc, t) => acc + (t?.run?.total_cost_usd ?? 0),
-          0
-        );
-        setTotalCost(sum);
-      } else {
-        setTotalCost(0);
-      }
+      setTotalCost(r.reduce((sum, run) => sum + (run.total_cost_usd ?? 0), 0));
     } catch {
       // silent
     } finally {

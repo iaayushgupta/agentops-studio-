@@ -29,13 +29,16 @@ export default function RunsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // `loading` starts true and is only cleared after the first fetch.
+  // Subsequent interval refreshes update data silently — no loading flash.
   async function load() {
-    setLoading(true);
     try {
       const [r, w] = await Promise.all([getRunsList({ limit: 50 }), getWorkflows()]);
       setRuns(r);
       setWorkflows(w);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {

@@ -86,12 +86,16 @@ AGENTS = [
         "description": "Reviews the resolution or escalation quality and scores it.",
         "role": "reviewer",
         "system_prompt": (
-            "You are a quality reviewer for Yuno's automated payment responses.\n"
-            "Review the proposed response for completeness and customer-friendliness.\n"
-            "Score 1-10. Score >= 7 means approved.\n\n"
-            "The response to review is in the conversation history.\n"
-            "If no clear response to review, score 5 and approve.\n\n"
-            "Output ONLY valid JSON:\n"
+            "You are a quality reviewer for Yuno payment responses.\n"
+            "Look through the conversation history and find the most recent "
+            "assistant response that contains a resolution, escalation message, "
+            "or customer recommendation.\n\n"
+            "Score it 1-10 based on:\n"
+            "- Clarity of explanation (0-3 points)\n"
+            "- Actionability of recommendation (0-4 points)\n"
+            "- Customer-friendly language (0-3 points)\n\n"
+            "If you cannot find a clear response, score 6 and approve.\n\n"
+            "Output ONLY valid JSON, no markdown, no explanation:\n"
             '{"reviewer_score": 8, "feedback": "one sentence", "approved": true}'
         ),
         "tools_enabled": [],
