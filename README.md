@@ -42,6 +42,14 @@ make seed     # populates agents, workflows, and mock payment data
 
 ---
 
+## Demo
+
+[![AgentOps Studio Demo](https://img.youtube.com/vi/tYDgstYFCkM/maxresdefault.jpg)](https://youtu.be/tYDgstYFCkM)
+
+*▶ Click to watch — Telegram trigger → 5 agents → live timeline → customer response (5 min)*
+
+---
+
 ## 2. Architecture Overview
 
 ```
@@ -306,13 +314,6 @@ make shell
 3. `make seed` — seeds are idempotent (DELETE + INSERT), safe to re-run
 4. Open http://localhost:3000
 
----
-
-## Demo
-
-[![AgentOps Studio Demo](https://img.youtube.com/vi/YOUR_VIDEO_ID/maxresdefault.jpg)](https://youtu.be/tYDgstYFCkM)
-
-*▶ Click to watch — Telegram trigger → 5 agents → live timeline → customer response (5 min)*
 
 ---
 
