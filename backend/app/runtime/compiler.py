@@ -508,8 +508,21 @@ class WorkflowCompiler:
         6. Broadcasts step events
         7. Returns state updates
         """
-        # Old format uses "agent" key; new format uses "agent_name" key
-        agent_name: str = node_data.get("agent") or node_data.get("agent_name") or node_id
+        # Resolve agent identifier from all possible field name variants:
+        #   Format A (ReactFlow seed):      data["agent"]      = "intake_agent"
+        #   Format B (backend-native seed): data["agent_name"] = "intake_agent"
+        #   Canvas-saved (config panel):    data["agentName"]  = "Intake Agent"
+        #                                   data["role"]       = "intake"
+        #                                   data["agent_role"] = "intake"
+        # Priority: role fields first (stable identifiers), then name fields.
+        agent_identifier: str = (
+            node_data.get("agent_role")
+            or node_data.get("role")
+            or node_data.get("agentName")
+            or node_data.get("agent_name")
+            or node_data.get("agent")
+            or node_id
+        )
         obs = ObservabilityService()
 
         async def agent_node(state: WorkflowState) -> dict:  # noqa: C901
@@ -518,13 +531,27 @@ class WorkflowCompiler:
             called_tools: set = set()   # ISSUE 2: per-invocation dedup; NOT shared across nodes
 
             async with AsyncSessionLocal() as db:
-                # ── 1. Fetch agent ────────────────────────────────────────────
+                # ── 1. Fetch agent — try role first, then name ────────────────
+                # Role lookup handles canvas-saved nodes (data.role / data.agent_role).
+                # Name lookup handles seeded workflows (data.agent / data.agent_name).
                 result = await db.execute(
-                    select(Agent).where(Agent.name == agent_name)
+                    select(Agent).where(Agent.role == agent_identifier)
                 )
                 agent = result.scalar_one_or_none()
                 if agent is None:
-                    raise ValueError(f"Agent '{agent_name}' not found in DB")
+                    result = await db.execute(
+                        select(Agent).where(Agent.name == agent_identifier)
+                    )
+                    agent = result.scalar_one_or_none()
+                if agent is None:
+                    raise ValueError(
+                        f"Agent '{agent_identifier}' not found in DB (node: {node_id}). "
+                        f"Check that the agent is seeded and that the node's role/name "
+                        f"matches an existing agent. "
+                        f"Available roles: intake, investigator, resolver, reviewer, "
+                        f"escalator, support_triage, tier1_support, tier2_support, "
+                        f"fraud_analyzer, risk_scorer, alert."
+                    )
 
                 # ── 2. Guardrail: iteration + cost ceiling ────────────────────
                 try:
@@ -537,7 +564,7 @@ class WorkflowCompiler:
 
                 # ── 3. Broadcast step_started ─────────────────────────────────
                 await obs.broadcast(run_id, EVT_STEP_STARTED, {
-                    "node": node_id, "agent": agent_name,
+                    "node": node_id, "agent": agent_identifier,
                 })
 
                 # ── 4. LLM + tools ────────────────────────────────────────────
@@ -700,7 +727,7 @@ class WorkflowCompiler:
 
             # ── 11. Broadcast step_completed ──────────────────────────────────
             await obs.broadcast(run_id, EVT_STEP_COMPLETED, {
-                "node": node_id, "agent": agent_name, "output": output,
+                "node": node_id, "agent": agent_identifier, "output": output,
             })
 
             # ── 12. Build state updates ───────────────────────────────────────
