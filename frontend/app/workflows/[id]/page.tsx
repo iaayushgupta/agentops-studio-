@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { type Node, type Edge } from "@xyflow/react";
-import { Canvas } from "@/components/workflow-builder/Canvas";
+import { Canvas, transformToReactFlow } from "@/components/workflow-builder/Canvas";
 import { getWorkflow, getAgents } from "@/lib/api";
 import { normalizeNodes, normalizeEdges } from "@/lib/normalizeWorkflow";
 import type { Workflow, Agent } from "@/lib/api";
@@ -24,12 +24,16 @@ export default function WorkflowEditorPage() {
       .then(([wf, agents]: [Workflow, Agent[]]) => {
         setWorkflow(wf);
 
-        const gj = (wf.graph_json ?? {}) as { nodes?: Node[]; edges?: Edge[] };
-        const rawNodes: Node[] = gj.nodes ?? [];
-        const rawEdges: Edge[] = gj.edges ?? [];
+        // transformToReactFlow normalises both DB formats into ReactFlow-compatible
+        // nodes/edges before normalizeNodes resolves agent slugs, condition fields, etc.
+        //   Format A (Payment Triage):  id/type/data/source/target
+        //   Format B (Support/Fraud):   node_id/node_type/config_json/source_node_id/…
+        const rf = transformToReactFlow(
+          (wf.graph_json ?? {}) as Record<string, unknown>
+        );
 
-        setInitialNodes(normalizeNodes(rawNodes, agents));
-        setInitialEdges(normalizeEdges(rawEdges));
+        setInitialNodes(normalizeNodes(rf.nodes, agents));
+        setInitialEdges(normalizeEdges(rf.edges));
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));

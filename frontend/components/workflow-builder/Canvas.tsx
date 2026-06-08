@@ -48,26 +48,38 @@ import type { Workflow } from "@/lib/api";
  * receive nodes/edges that have the 'id', 'type', 'data', 'source', 'target'
  * fields they expect.
  */
-function transformToReactFlow(
+export function transformToReactFlow(
   graphJson: Record<string, unknown>
 ): { nodes: Node[]; edges: Edge[] } {
   const rawNodes = (graphJson.nodes as Record<string, unknown>[] | undefined) ?? [];
   const rawEdges = (graphJson.edges as Record<string, unknown>[] | undefined) ?? [];
 
-  const nodes: Node[] = rawNodes.map((n) => {
+  const nodes: Node[] = rawNodes.map((n, index) => {
     const id   = (n.node_id ?? n.id) as string;
     const type = (n.node_type ?? n.type) as string;
     const cfg  = (n.config_json ?? n.data ?? {}) as Record<string, unknown>;
     return {
       id,
       type,
-      position: (n.position as { x: number; y: number }) ?? { x: 0, y: 0 },
-      data: { ...cfg, label: (cfg.label as string | undefined) ?? id },
+      // Use stored position; fall back to a stacked column so nodes are never
+      // piled at the origin when position is absent from the DB record.
+      position: (n.position as { x: number; y: number }) ?? { x: 300, y: index * 150 },
+      data: {
+        ...cfg,
+        label: (cfg.label as string | undefined) ?? id,
+        // Map Format B "agent_name" field to "agent" so normalizeNodes can
+        // resolve it against the agents list with a single code path.
+        ...(cfg.agent_name !== undefined && cfg.agent === undefined
+          ? { agent: cfg.agent_name }
+          : {}),
+      },
     };
   });
 
   const edges: Edge[] = rawEdges.map((e, i) => {
-    const condJson = e.condition_json as Record<string, unknown> | undefined;
+    // condition_json (Format B) carries { value: "low" } — extract the string.
+    // data.condition (Format A) is already the string we need.
+    const condJson  = e.condition_json as Record<string, unknown> | undefined;
     const legacyData = e.data as Record<string, unknown> | undefined;
     return {
       id:     (e.id ?? `edge-${i}`) as string,

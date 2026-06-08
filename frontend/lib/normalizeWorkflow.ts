@@ -73,7 +73,10 @@ function normalizeAgentData(
   // Already normalized (saved from our canvas)
   if (raw.agentId) return raw;
 
-  const slug = raw.agent as string | undefined;
+  // Format A stores the slug as "agent"; Format B uses "agent_name".
+  // transformToReactFlow maps agent_name → agent, but we also keep agent_name
+  // as a fallback here for robustness.
+  const slug = (raw.agent ?? raw.agent_name) as string | undefined;
   if (!slug) return raw;
 
   const agent =
